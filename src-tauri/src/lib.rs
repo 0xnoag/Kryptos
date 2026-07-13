@@ -6,7 +6,6 @@ pub mod crypto;
 
 use daemon::config::DaemonConfig;
 use daemon::engine::ProcessManager;
-use daemon::ipc::IpcServer;
 use firewall::nftables::{KillSwitchStatus, NftablesManager};
 use firewall::panic::PanicEngine;
 use std::sync::Arc;
@@ -18,7 +17,6 @@ pub struct EndpointPrivacyDaemon {
     pub process_manager: Arc<RwLock<ProcessManager>>,
     pub nftables_manager: Arc<RwLock<NftablesManager>>,
     pub panic_engine: Arc<RwLock<PanicEngine>>,
-    ipc_server: Option<IpcServer>,
 }
 
 impl EndpointPrivacyDaemon {
@@ -27,7 +25,12 @@ impl EndpointPrivacyDaemon {
         let config = config_mgr.load()?;
         info!("Configuration loaded from {}", config_dir);
 
-        let nftables_manager = Arc::new(RwLock::new(NftablesManager::new()));
+        let nftables_manager = Arc::new(RwLock::new({
+            let mut nft = NftablesManager::new();
+            // Restrict outbound DNS exceptions to the configured upstream resolver
+            nft.set_dns_upstream(&config.dns.upstream);
+            nft
+        }));
         let panic_engine = Arc::new(RwLock::new(PanicEngine::new(nftables_manager.clone())));
 
         {
@@ -70,44 +73,6 @@ impl EndpointPrivacyDaemon {
             process_manager,
             nftables_manager,
             panic_engine,
-            ipc_server: None,
         })
-    }
-
-    pub async fn start_ipc_server(&mut self) -> anyhow::Result<()> {
-        let ipc = IpcServer::new(
-            &self.config.ipc_socket_path,
-            self.process_manager.clone(),
-            self.panic_engine.clone(),
-        )?;
-        self.ipc_server = Some(ipc);
-        info!("IPC server started on {}", self.config.ipc_socket_path);
-        Ok(())
-    }
-
-    pub async fn run_ipc(&self) -> anyhow::Result<()> {
-        if let Some(ref ipc) = self.ipc_server {
-            ipc.run().await
-        } else {
-            anyhow::bail!("IPC server not initialized");
-        }
-    }
-
-    pub async fn shutdown(&mut self) -> anyhow::Result<()> {
-        info!("Shutting down Endpoint Privacy Suite");
-
-        if self.config.kill_switch_on_exit {
-            let mut panic = self.panic_engine.write().await;
-            match panic.activate(firewall::panic::PanicLevel::Nuclear).await {
-                Ok(status) => info!("Nuclear kill switch activated on shutdown: {:?}", status),
-                Err(e) => warn!("Failed to activate kill switch on shutdown: {e}"),
-            }
-        }
-
-        let mut pm = self.process_manager.write().await;
-        pm.stop_all().await?;
-
-        info!("Shutdown complete");
-        Ok(())
     }
 }

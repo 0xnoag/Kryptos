@@ -1,6 +1,6 @@
 use clap::Parser;
-use endpoint_privacy_suite::EndpointPrivacyDaemon;
-use std::sync::Arc;
+use endpoint_privacy_suite::firewall::panic::PanicLevel;
+use endpoint_privacy_suite::{daemon, firewall, network};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -10,7 +10,7 @@ struct Cli {
     #[arg(short, long, default_value = "/etc/endpoint-privacy")]
     config_dir: String,
 
-    #[arg(short, long, env = "EPS_PASSWORD")]
+    #[arg(short = 'P', long = "password", env = "EPS_PASSWORD", hide = true)]
     password: String,
 
     #[arg(short, long, help = "Run in foreground (default: daemonize)")]
@@ -37,34 +37,60 @@ async fn main() -> anyhow::Result<()> {
         std::process::exit(1);
     }
 
-    let mut daemon = EndpointPrivacyDaemon::new(&cli.config_dir, &cli.password).await?;
-    daemon.start_ipc_server().await?;
+    let daemon =
+        endpoint_privacy_suite::EndpointPrivacyDaemon::new(&cli.config_dir, &cli.password).await?;
 
-    let daemon = Arc::new(tokio::sync::RwLock::new(daemon));
+    let pm = daemon.process_manager.clone();
+    let pe = daemon.panic_engine.clone();
+    let kill_on_exit = daemon.config.kill_switch_on_exit;
 
-    let daemon_clone = daemon.clone();
-    tokio::spawn(async move {
-        let daemon = daemon_clone.read().await;
-        if let Err(e) = daemon.run_ipc().await {
+    // Start IPC server with cloned Arcs (no outer lock)
+    let ipc = daemon::ipc::IpcServer::new(
+        &daemon.config.ipc_socket_path,
+        pm.clone(),
+        pe.clone(),
+    )?;
+
+    let ipc_handle = tokio::spawn(async move {
+        if let Err(e) = ipc.run().await {
             tracing::error!("IPC server error: {e}");
         }
     });
 
-    let daemon_clone2 = daemon.clone();
-    ctrlc::set_handler(move || {
-        tracing::info!("Received shutdown signal");
-        let daemon = daemon_clone2.clone();
-        tokio::spawn(async move {
-            let mut daemon = daemon.write().await;
-            let _ = daemon.shutdown().await;
-            std::process::exit(0);
-        });
-    })
-    .expect("Failed to set Ctrl+C handler");
-
-    tracing::info!("Endpoint Privacy Suite daemon running (foreground: {})", cli.foreground);
-
-    loop {
-        tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
+    // Apply IPv6 leak block at startup
+    if let Err(e) = network::routing::RouteManager::block_ipv6_leaks().await {
+        tracing::warn!("Failed to block IPv6 leaks on startup: {e}");
     }
+
+    tracing::info!(
+        "Endpoint Privacy Suite daemon running (foreground: {})",
+        cli.foreground
+    );
+
+    // Wait for shutdown signal
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            tracing::info!("Received Ctrl+C shutdown signal");
+        }
+        _ = async { ipc_handle.await.unwrap_or(()) } => {
+            tracing::info!("IPC server exited, shutting down");
+        }
+    }
+
+    // Consistent lock ordering: ProcessManager first, then PanicEngine
+    if kill_on_exit {
+        let mut pe_lock = pe.write().await;
+        match pe_lock.activate(PanicLevel::Nuclear).await {
+            Ok(_) => tracing::info!("Nuclear kill switch activated on shutdown"),
+            Err(e) => tracing::warn!("Failed to activate kill switch on shutdown: {e}"),
+        }
+    }
+
+    {
+        let mut pm_lock = pm.write().await;
+        let _ = pm_lock.stop_all().await;
+    }
+
+    tracing::info!("Shutdown complete");
+    Ok(())
 }
