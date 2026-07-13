@@ -13,22 +13,27 @@ struct Cli {
     #[arg(short, long, env = "EPS_PASSWORD")]
     password: String,
 
-    #[arg(short, long)]
+    #[arg(short, long, help = "Run in foreground (default: daemonize)")]
     foreground: bool,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("info,endpoint_privacy_suite=debug")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("info,endpoint_privacy_suite=debug")),
+        )
         .init();
 
     let cli = Cli::parse();
 
     if !nix::unistd::getuid().is_root() {
         eprintln!("ERROR: Endpoint Privacy Suite must be run as root.");
-        eprintln!("Please run with: sudo {}", std::env::args().next().unwrap_or_default());
+        eprintln!(
+            "Please run with: sudo {}",
+            std::env::args().next().unwrap_or_default()
+        );
         std::process::exit(1);
     }
 
@@ -54,9 +59,11 @@ async fn main() -> anyhow::Result<()> {
             let _ = daemon.shutdown().await;
             std::process::exit(0);
         });
-    }).expect("Failed to set Ctrl+C handler");
+    })
+    .expect("Failed to set Ctrl+C handler");
 
-    tracing::info!("Endpoint Privacy Suite daemon running");
+    tracing::info!("Endpoint Privacy Suite daemon running (foreground: {})", cli.foreground);
+
     loop {
         tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
     }

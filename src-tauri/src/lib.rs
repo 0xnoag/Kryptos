@@ -4,14 +4,14 @@ pub mod network;
 pub mod utils;
 pub mod crypto;
 
-use daemon::config::{ConfigManager, DaemonConfig};
+use daemon::config::DaemonConfig;
 use daemon::engine::ProcessManager;
 use daemon::ipc::IpcServer;
-use firewall::nftables::NftablesManager;
+use firewall::nftables::{KillSwitchStatus, NftablesManager};
 use firewall::panic::PanicEngine;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::info;
+use tracing::{info, warn};
 
 pub struct EndpointPrivacyDaemon {
     pub config: DaemonConfig,
@@ -23,12 +23,39 @@ pub struct EndpointPrivacyDaemon {
 
 impl EndpointPrivacyDaemon {
     pub async fn new(config_dir: &str, password: &str) -> anyhow::Result<Self> {
-        let config_mgr = ConfigManager::new(config_dir, password)?;
+        let config_mgr = daemon::config::ConfigManager::new(config_dir, password)?;
         let config = config_mgr.load()?;
         info!("Configuration loaded from {}", config_dir);
 
         let nftables_manager = Arc::new(RwLock::new(NftablesManager::new()));
         let panic_engine = Arc::new(RwLock::new(PanicEngine::new(nftables_manager.clone())));
+
+        {
+            let nft = nftables_manager.read().await;
+            match nft.check_status().await {
+                Ok(KillSwitchStatus::Active(rules)) => {
+                    warn!(
+                        "Pre-existing nftables kill-switch rules detected on startup:\n{}",
+                        rules
+                    );
+                }
+                Ok(KillSwitchStatus::Partial(rules)) => {
+                    warn!(
+                        "Partial pre-existing nftables rules detected:\n{}",
+                        rules
+                    );
+                }
+                Ok(KillSwitchStatus::Inactive) => {
+                    info!("No pre-existing nftables kill-switch rules found");
+                }
+                Ok(KillSwitchStatus::Unavailable) => {
+                    warn!("nftables binary not available — kill switch cannot be activated");
+                }
+                Err(e) => {
+                    warn!("Failed to check nftables status on startup: {e}");
+                }
+            }
+        }
 
         let mut pm = ProcessManager::new();
         pm.register_defaults(
@@ -71,7 +98,10 @@ impl EndpointPrivacyDaemon {
 
         if self.config.kill_switch_on_exit {
             let mut panic = self.panic_engine.write().await;
-            let _ = panic.activate(firewall::panic::PanicLevel::Nuclear).await;
+            match panic.activate(firewall::panic::PanicLevel::Nuclear).await {
+                Ok(status) => info!("Nuclear kill switch activated on shutdown: {:?}", status),
+                Err(e) => warn!("Failed to activate kill switch on shutdown: {e}"),
+            }
         }
 
         let mut pm = self.process_manager.write().await;
