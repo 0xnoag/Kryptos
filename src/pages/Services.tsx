@@ -1,128 +1,129 @@
 import { useDaemon } from "../lib/daemon-context";
-import { Play, Square, RotateCcw, Server, Activity } from "lucide-react";
+import { Play, Square, RotateCcw, Radio } from "lucide-react";
 
 const serviceLabels: Record<string, string> = {
-  Tor: "TCP Anonymization via Tor + obfs4",
-  Obfs4Proxy: "Traffic Obfuscation Proxy",
-  AmneziaWG: "Obfuscated WireGuard UDP Tunnel",
-  Syncthing: "P2P Encrypted File Sync",
+  Tor: "TCP anonymization via Tor with obfs4 bridging",
+  Obfs4Proxy: "Traffic obfuscation proxy for Tor bridges",
+  AmneziaWG: "Obfuscated WireGuard UDP tunnel",
+  Syncthing: "P2P encrypted file synchronization",
 };
+
+function formatUptime(secs: number): string {
+  if (secs < 60) return `${secs}s`;
+  const m = Math.floor(secs / 60);
+  if (m < 60) return `${m}m ${secs % 60}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
 
 export function Services() {
   const { services, startService, stopService, restartService } = useDaemon();
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-5 max-w-[1280px]">
       <div>
-        <h1 className="text-3xl font-bold text-white">Services</h1>
-        <p className="text-gray-400 mt-1">
-          Manage the core privacy engine binaries
-        </p>
+        <h1 className="text-lg font-semibold text-[#e2e8f0]">Services</h1>
+        <p className="text-caption mt-0.5">Manage the core privacy engine processes</p>
       </div>
 
-      <div className="grid grid-cols-1 gap-6">
-        {services.map((svc) => (
-          <div key={svc.name} className="card">
-            <div className="flex items-start justify-between">
-              <div className="flex items-start gap-4">
-                <div
-                  className={`p-3 rounded-lg ${
+      <div className="space-y-3">
+        {services.map((svc) => {
+          let dotClass = "status-dot-muted";
+          let statusLabel = "Stopped";
+          if (svc.status === "Running") {
+            dotClass = "status-dot-ok";
+            statusLabel = "Running";
+          } else if (svc.status === "Failed") {
+            dotClass = "status-dot-critical";
+            statusLabel = "Failed";
+          } else if (svc.status === "Starting") {
+            dotClass = "status-dot-warn";
+            statusLabel = "Starting";
+          } else if (svc.status === "Restarting") {
+            dotClass = "status-dot-warn";
+            statusLabel = "Restarting";
+          }
+
+          return (
+            <div key={svc.name} className="card">
+              <div className="flex items-start justify-between">
+                <div className="flex items-start gap-3">
+                  <div className={`p-2 rounded-md ${
                     svc.status === "Running"
-                      ? "bg-privacy-600/20 text-privacy-400"
-                      : "bg-gray-800 text-gray-500"
-                  }`}
-                >
-                  <Server className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-white capitalize">
-                    {svc.name}
-                  </h3>
-                  <p className="text-sm text-gray-400 mt-1">
-                    {serviceLabels[svc.name] ?? ""}
-                  </p>
-                  <div className="flex items-center gap-4 mt-3 text-sm">
+                      ? "bg-[#064e3b]"
+                      : "bg-[#232738]"
+                  }`}>
+                    <Radio className={`w-4 h-4 ${
+                      svc.status === "Running"
+                        ? "text-[#6ee7b7]"
+                        : "text-[#64748b]"
+                    }`} />
+                  </div>
+                  <div>
                     <div className="flex items-center gap-2">
-                      <span
-                        className={`w-2.5 h-2.5 rounded-full ${
-                          svc.status === "Running"
-                            ? "bg-privacy-500"
-                            : svc.status === "Failed"
-                              ? "bg-danger-500"
-                              : svc.status === "Starting"
-                                ? "bg-yellow-500 animate-pulse"
-                                : "bg-gray-600"
-                        }`}
-                      />
-                      <span className="text-gray-400">{svc.status}</span>
+                      <h3 className="text-sm font-semibold text-[#e2e8f0]">
+                        {svc.name}
+                      </h3>
+                      <span className={dotClass} />
+                      <span className="text-[11px] text-[#64748b]">{statusLabel}</span>
                     </div>
-                    {svc.pid && (
-                      <span className="text-gray-500">PID: {svc.pid}</span>
-                    )}
-                    {svc.uptime_secs > 0 && (
-                      <span className="text-gray-500">
-                        Uptime: {Math.floor(svc.uptime_secs / 60)}m{" "}
-                        {svc.uptime_secs % 60}s
-                      </span>
-                    )}
-                    {svc.restart_count > 0 && (
-                      <span className="text-gray-500">
-                        Restarts: {svc.restart_count}
-                      </span>
-                    )}
+                    <p className="text-[11px] text-[#64748b] mt-0.5">
+                      {serviceLabels[svc.name] ?? ""}
+                    </p>
+                    <div className="flex items-center gap-3 mt-1.5">
+                      {svc.uptime_secs > 0 && (
+                        <span className="text-caption font-mono">
+                          {formatUptime(svc.uptime_secs)}
+                        </span>
+                      )}
+                      {svc.restart_count > 0 && (
+                        <span className="text-caption">
+                          Restarts: {svc.restart_count}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="flex items-center gap-2">
-                {svc.status !== "Running" ? (
-                  <button
-                    onClick={() => startService(svc.name)}
-                    className="btn-primary flex items-center gap-2"
-                    disabled={svc.status === "Starting"}
-                  >
-                    <Play className="w-4 h-4" />
-                    Start
-                  </button>
-                ) : (
-                  <>
+                <div className="flex items-center gap-2">
+                  {svc.status !== "Running" ? (
                     <button
-                      onClick={() => restartService(svc.name)}
-                      className="btn-outline flex items-center gap-2"
+                      onClick={() => startService(svc.name)}
+                      className="btn-primary flex items-center gap-1.5"
+                      disabled={svc.status === "Starting" || svc.status === "Restarting"}
                     >
-                      <RotateCcw className="w-4 h-4" />
-                      Restart
+                      <Play className="w-3 h-3" />
+                      Start
                     </button>
-                    <button
-                      onClick={() => stopService(svc.name)}
-                      className="btn-danger flex items-center gap-2"
-                    >
-                      <Square className="w-4 h-4" />
-                      Stop
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {svc.status === "Running" && (
-              <div className="mt-4 pt-4 border-t border-gray-800">
-                <div className="flex items-center gap-2 text-sm text-gray-500">
-                  <Activity className="w-4 h-4" />
-                  <span>Traffic flowing through encrypted tunnel</span>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => restartService(svc.name)}
+                        className="btn-secondary flex items-center gap-1.5"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        Restart
+                      </button>
+                      <button
+                        onClick={() => stopService(svc.name)}
+                        className="btn-critical flex items-center gap-1.5"
+                      >
+                        <Square className="w-3 h-3" />
+                        Stop
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
-            )}
-          </div>
-        ))}
+            </div>
+          );
+        })}
 
         {services.length === 0 && (
-          <div className="card text-center py-12">
-            <Server className="w-12 h-12 text-gray-700 mx-auto mb-4" />
-            <p className="text-gray-400">No services registered</p>
-            <p className="text-gray-600 text-sm mt-1">
-              Daemon may not be connected
-            </p>
+          <div className="card py-8 text-center">
+            <Radio className="w-8 h-8 text-[#2a2e3d] mx-auto mb-2" />
+            <p className="text-[13px] text-[#64748b]">No services registered</p>
+            <p className="text-caption mt-1">Daemon may not be connected</p>
           </div>
         )}
       </div>

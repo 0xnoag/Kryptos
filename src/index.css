@@ -5,64 +5,134 @@
 @layer base {
   body {
     @apply antialiased;
+    font-family: "Inter", "SF Pro", -apple-system, BlinkMacSystemFont,
+      "Segoe UI", sans-serif;
+  }
+
+  code, .font-mono {
+    font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
   }
 }
 
 @layer components {
-  .btn-primary {
-    @apply px-4 py-2 bg-privacy-600 hover:bg-privacy-500 
-           text-white font-medium rounded-lg transition-colors
-           disabled:opacity-50 disabled:cursor-not-allowed;
+  /* ---- Surface layers ---- */
+  .surface-page {
+    @apply bg-[#0f1117];
+  }
+  .surface-card {
+    @apply bg-[#1a1d27];
+  }
+  .surface-elevated {
+    @apply bg-[#232738];
+  }
+  .surface-input {
+    @apply bg-[#161922];
   }
 
-  .btn-danger {
-    @apply px-4 py-2 bg-danger-600 hover:bg-danger-500 
-           text-white font-medium rounded-lg transition-colors
-           disabled:opacity-50 disabled:cursor-not-allowed;
+  /* ---- Border ---- */
+  .border-panel {
+    @apply border border-[#2a2e3d];
+  }
+  .border-divider {
+    @apply border-t border-[#1f2332];
   }
 
-  .btn-outline {
-    @apply px-4 py-2 border border-gray-600 hover:border-gray-400 
-           text-gray-300 hover:text-white font-medium rounded-lg transition-colors;
+  /* ---- Text ---- */
+  .text-data {
+    @apply font-mono text-[13px] text-[#e2e8f0];
+  }
+  .text-label {
+    @apply text-[11px] font-medium uppercase tracking-wider text-[#64748b];
+  }
+  .text-caption {
+    @apply text-[11px] text-[#64748b];
   }
 
+  /* ---- Card ---- */
   .card {
-    @apply bg-gray-900 border border-gray-800 rounded-xl p-6;
+    @apply surface-card border-panel rounded-lg p-4;
+  }
+  .card-header {
+    @apply flex items-center gap-2 pb-3 border-divider;
+  }
+  .card-title {
+    @apply text-sm font-semibold text-[#e2e8f0];
   }
 
+  /* ---- Buttons ---- */
+  .btn-primary {
+    @apply px-3 py-1.5 text-xs font-medium rounded-md
+           bg-[#5eead4] text-[#0f1117]
+           hover:bg-[#2dd4bf]
+           disabled:opacity-40 disabled:cursor-not-allowed
+           transition-colors duration-150;
+  }
+  .btn-secondary {
+    @apply px-3 py-1.5 text-xs font-medium rounded-md
+           border border-[#2a2e3d] text-[#94a3b8]
+           hover:border-[#5eead4] hover:text-[#e2e8f0]
+           disabled:opacity-40 disabled:cursor-not-allowed
+           transition-colors duration-150;
+  }
+  .btn-critical {
+    @apply px-3 py-1.5 text-xs font-medium rounded-md
+           border border-[#f87171] text-[#f87171]
+           hover:bg-[#450a0a]
+           disabled:opacity-40 disabled:cursor-not-allowed
+           transition-colors duration-150;
+  }
+  .btn-ghost {
+    @apply px-2 py-1 text-xs font-medium rounded-md
+           text-[#64748b] hover:text-[#e2e8f0] hover:bg-[#232738]
+           disabled:opacity-40 disabled:cursor-not-allowed
+           transition-colors duration-150;
+  }
+
+  /* ---- Status indicators ---- */
   .status-dot {
-    @apply w-2.5 h-2.5 rounded-full inline-block;
+    @apply w-2 h-2 rounded-full inline-block flex-shrink-0;
+  }
+  .status-dot-ok { @apply status-dot bg-[#6ee7b7]; }
+  .status-dot-warn { @apply status-dot bg-[#fbbf24]; }
+  .status-dot-critical { @apply status-dot bg-[#f87171]; }
+  .status-dot-info { @apply status-dot bg-[#67e8f9]; }
+  .status-dot-muted { @apply status-dot bg-[#2a2e3d]; }
+
+  /* ---- Status bar ---- */
+  .status-bar {
+    @apply h-10 bg-[#1a1d27] border-b border-[#2a2e3d] flex items-center px-4 gap-4;
+  }
+  .status-bar-item {
+    @apply flex items-center gap-1.5 text-caption;
   }
 
-  .status-dot-active {
-    @apply status-dot bg-privacy-500 shadow-[0_0_8px_rgba(34,197,94,0.5)];
+  /* ---- Topology ---- */
+  .topology-node {
+    @apply surface-card border-panel rounded-lg p-3 flex flex-col items-center gap-1.5;
+    min-width: 100px;
+  }
+  .topology-node-label {
+    @apply text-label;
+  }
+  .topology-node-value {
+    @apply text-data;
+  }
+  .topology-arrow {
+    @apply text-[#2a2e3d] text-lg flex items-center;
+  }
+  .topology-arrow-active {
+    @apply text-[#5eead4];
   }
 
-  .status-dot-inactive {
-    @apply status-dot bg-gray-600;
+  /* ---- Data list ---- */
+  .data-row {
+    @apply flex items-center justify-between py-2 px-3 rounded-md
+           text-[13px] text-[#94a3b8] hover:bg-[#232738] transition-colors duration-150;
   }
-
-  .status-dot-error {
-    @apply status-dot bg-danger-500 shadow-[0_0_8px_rgba(239,68,68,0.5)];
+  .data-row-label {
+    @apply text-[#94a3b8];
   }
-
-  .status-dot-warning {
-    @apply status-dot bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.5)];
-  }
-
-  .panel {
-    @apply card space-y-4;
-  }
-
-  .panel-title {
-    @apply text-lg font-semibold text-gray-200 flex items-center gap-2;
-  }
-
-  .meter-bar {
-    @apply h-2 bg-gray-800 rounded-full overflow-hidden;
-  }
-
-  .meter-fill {
-    @apply h-full bg-privacy-500 rounded-full transition-all duration-500;
+  .data-row-value {
+    @apply font-mono text-[13px] text-[#e2e8f0];
   }
 }

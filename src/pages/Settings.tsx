@@ -1,118 +1,137 @@
-import { Settings as SettingsIcon, Lock, FileText, RefreshCw } from "lucide-react";
+import { Settings as SettingsIcon, Lock, RefreshCw, FileText, Package } from "lucide-react";
 
 export function Settings() {
   return (
-    <div className="space-y-8">
+    <div className="space-y-5 max-w-[1280px]">
       <div>
-        <h1 className="text-3xl font-bold text-white">Settings</h1>
-        <p className="text-gray-400 mt-1">
-          Daemon configuration and system preferences
-        </p>
+        <h1 className="text-lg font-semibold text-[#e2e8f0]">Settings</h1>
+        <p className="text-caption mt-0.5">Daemon configuration and system information</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Encryption */}
         <div className="card">
-          <div className="panel-title">
-            <Lock className="w-5 h-5 text-privacy-400" />
-            Daemon Authentication
+          <div className="card-header">
+            <Lock className="w-4 h-4 text-[#5eead4]" />
+            <span className="card-title">Encryption</span>
           </div>
-          <p className="text-gray-400 text-sm mt-2">
-            Config files are encrypted with AES-256-GCM + Argon2 KDF.
-            Password is provided at daemon startup via the
-            <code className="text-privacy-400 mx-1">EPS_PASSWORD</code>
-            environment variable.
-          </p>
-          <div className="mt-4 flex items-center gap-2 text-sm text-gray-500">
-            <div className="w-2 h-2 rounded-full bg-privacy-500" />
-            Encrypted config at /etc/endpoint-privacy/config.enc
+          <div className="mt-3 space-y-1.5">
+            <div className="data-row">
+              <span className="data-row-label">Algorithm</span>
+              <span className="data-row-value">AES-256-GCM</span>
+            </div>
+            <div className="data-row">
+              <span className="data-row-label">KDF</span>
+              <span className="data-row-value">Argon2id (64 MiB, 3 iter, 4 lanes)</span>
+            </div>
+            <div className="data-row">
+              <span className="data-row-label">Config file</span>
+              <span className="data-row-value">/etc/endpoint-privacy/config.enc</span>
+            </div>
+            <div className="data-row">
+              <span className="data-row-label">Auth method</span>
+              <span className="data-row-value">EPS_PASSWORD env var</span>
+            </div>
           </div>
         </div>
 
+        {/* Kill switch on exit */}
         <div className="card">
-          <div className="panel-title">
-            <RefreshCw className="w-5 h-5" />
-            Kill Switch on Exit
+          <div className="card-header">
+            <RefreshCw className="w-4 h-4 text-[#5eead4]" />
+            <span className="card-title">Shutdown behavior</span>
           </div>
-          <p className="text-gray-400 text-sm mt-2">
-            When enabled, the daemon will automatically activate the nuclear panic
-            level on shutdown to ensure zero traffic leaks.
-          </p>
-          <div className="mt-4 flex items-center gap-3">
-            <button className="btn-primary">Enabled</button>
-            <span className="text-xs text-gray-500">
-              Recommended: ON
-            </span>
+          <div className="mt-3 space-y-1.5">
+            <div className="data-row">
+              <span className="data-row-label">Kill switch on exit</span>
+              <span className="data-row-value text-[#6ee7b7]">Enabled</span>
+            </div>
+            <div className="data-row">
+              <span className="data-row-label">Shutdown action</span>
+              <span className="data-row-value">Nuclear panic → stop all</span>
+            </div>
+            <div className="data-row">
+              <span className="data-row-label">Key zeroization</span>
+              <span className="data-row-value text-[#6ee7b7]">On drop</span>
+            </div>
           </div>
         </div>
       </div>
 
+      {/* Configuration paths */}
       <div className="card">
-        <div className="panel-title">
-          <FileText className="w-5 h-5" />
-          Configuration Paths
+        <div className="card-header">
+          <FileText className="w-4 h-4 text-[#5eead4]" />
+          <span className="card-title">Configuration paths</span>
         </div>
-        <div className="mt-4 space-y-3 text-sm">
+        <div className="mt-3 space-y-1">
           {[
-            ["Daemon Config", "/etc/endpoint-privacy/config.enc"],
-            ["IPC Socket", "/run/endpoint-privacy/ipc.sock"],
-            ["Tor Config", "/etc/tor/torrc"],
-            ["Tor Data", "/var/lib/tor"],
-            ["AmneziaWG Config", "/etc/amneziawg/awg0.conf"],
-            ["Syncthing Home", "/etc/syncthing"],
+            ["Daemon config", "/etc/endpoint-privacy/config.enc"],
+            ["Salt file", "/etc/endpoint-privacy/.salt"],
+            ["IPC socket", "/run/endpoint-privacy/ipc.sock"],
+            ["Tor config", "/etc/tor/torrc"],
+            ["Tor data", "/var/lib/tor"],
+            ["AmneziaWG config", "/etc/amneziawg/awg0.conf"],
+            ["Syncthing home", "/etc/syncthing"],
             ["Logs", "/var/log/endpoint-privacy/"],
           ].map(([label, path]) => (
-            <div
-              key={label}
-              className="flex items-center justify-between p-2 bg-gray-950 rounded-lg"
-            >
-              <span className="text-gray-400">{label}</span>
-              <code className="text-privacy-400 font-mono text-xs">{path}</code>
+            <div key={label} className="data-row">
+              <span className="data-row-label">{label}</span>
+              <code className="text-[11px] font-mono text-[#5eead4]">{path}</code>
             </div>
           ))}
         </div>
       </div>
 
+      {/* System dependencies */}
       <div className="card">
-        <div className="panel-title">
-          <SettingsIcon className="w-5 h-5" />
-          System Dependencies
+        <div className="card-header">
+          <Package className="w-4 h-4 text-[#5eead4]" />
+          <span className="card-title">System dependencies</span>
         </div>
-        <p className="text-gray-400 text-sm mt-2">
-          Required binaries that must be installed on the system:
-        </p>
-        <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
           {[
-            { name: "tor", pkg: "tor" },
-            { name: "obfs4proxy", pkg: "obfs4proxy" },
-            { name: "awg", pkg: "amneziawg" },
-            { name: "syncthing", pkg: "syncthing" },
-            { name: "nft", pkg: "nftables" },
-            { name: "ip", pkg: "iproute2" },
-            { name: "resolvectl", pkg: "systemd-resolved" },
-            { name: "sysctl", pkg: "procps" },
-          ].map(({ name, pkg }) => (
+            { bin: "tor", pkg: "tor" },
+            { bin: "obfs4proxy", pkg: "obfs4proxy" },
+            { bin: "awg", pkg: "amneziawg-tools" },
+            { bin: "syncthing", pkg: "syncthing" },
+            { bin: "nft", pkg: "nftables" },
+            { bin: "ip", pkg: "iproute2" },
+            { bin: "resolvectl", pkg: "systemd-resolved" },
+            { bin: "sysctl", pkg: "procps" },
+          ].map(({ bin, pkg }) => (
             <div
-              key={name}
-              className="flex items-center gap-2 p-2 bg-gray-950 rounded-lg"
+              key={bin}
+              className="flex items-center gap-2 p-2 rounded-md bg-[#161922]"
             >
-              <div className="w-2 h-2 rounded-full bg-privacy-500" />
-              <span className="text-gray-300">{name}</span>
-              <span className="text-gray-600 text-xs ml-auto">{pkg}</span>
+              <span className="status-dot-muted" />
+              <span className="text-[12px] text-[#94a3b8] font-mono">{bin}</span>
+              <span className="text-[10px] text-[#64748b] ml-auto">{pkg}</span>
             </div>
           ))}
         </div>
       </div>
 
-      <div className="card border-danger-800">
-        <h3 className="text-lg font-semibold text-danger-400 mb-2">
-          Danger Zone
-        </h3>
-        <p className="text-gray-400 text-sm">
-          These actions will reset all daemon state and firewall rules.
-        </p>
-        <div className="flex gap-3 mt-4">
-          <button className="btn-danger">Reset Firewall Rules</button>
-          <button className="btn-danger">Purge All Config</button>
+      {/* Security notes */}
+      <div className="card border-[#f87171]/20">
+        <div className="card-header">
+          <SettingsIcon className="w-4 h-4 text-[#f87171]" />
+          <span className="card-title text-[#f87171]">Security notes</span>
+        </div>
+        <div className="mt-3 space-y-2 text-[12px] text-[#94a3b8] leading-relaxed">
+          <p>
+            DNS is forwarded over plain UDP (DoH config field reserved). DNS queries are visible
+            to the ISP and local network. The kill switch restricts outbound DNS to the configured
+            upstream resolver IP only.
+          </p>
+          <p>
+            nftables rules survive daemon crash (kernel state) but not reboot. After a system
+            restart, there is a brief unprotected window until the daemon starts.
+          </p>
+          <p>
+            The daemon runs as root. Privilege separation (privileged helper + unprivileged daemon)
+            is documented in SECURITY.md but not yet implemented.
+          </p>
         </div>
       </div>
     </div>
