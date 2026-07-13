@@ -14,7 +14,7 @@ interface PanicStatus {
   kill_switch_active: boolean;
   interfaces_down: boolean;
   dns_flushed: boolean;
-  memory_flushed: boolean;
+  kernel_caches_purged: boolean;
 }
 
 interface DaemonState {
