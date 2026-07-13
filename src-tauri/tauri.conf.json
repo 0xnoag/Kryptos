@@ -1,0 +1,48 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-cli/schema.json",
+  "productName": "Endpoint Privacy Suite",
+  "version": "0.1.0",
+  "identifier": "com.endpoint-privacy.suite",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "title": "Endpoint Privacy Suite",
+    "windows": [
+      {
+        "title": "Endpoint Privacy Suite",
+        "width": 1024,
+        "height": 768,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "tor",
+          "obfs4proxy",
+          "amneziawg",
+          "syncthing"
+        ]
+      }
+    }
+  }
+}
