@@ -111,7 +111,7 @@ impl RouteManager {
     }
 
     pub async fn flush_routes() -> Result<()> {
-        let tables = ["main", "local", "100", "200"];
+        let tables = ["100", "200"];
         for table in &tables {
             let res = run_cmd(
                 Command::new("ip")

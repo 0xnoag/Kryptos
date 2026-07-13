@@ -1,4 +1,4 @@
-use crate::daemon::engine::{ProcessManager, ServiceInfo, ServiceName, ServiceStatus};
+use crate::daemon::engine::{ProcessManager, ServiceInfo, ServiceName};
 use crate::firewall::panic::{PanicEngine, PanicLevel, PanicStatus};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -217,7 +217,9 @@ impl IpcServer {
                     }
                 };
                 let mut pm = pm.write().await;
-                let _ = pm.stop(name).await;
+                if let Err(e) = pm.stop(name).await {
+                    warn!("Stop failed during restart of {}: {e}", service);
+                }
                 match pm.start(name).await {
                     Ok(()) => IpcResponse::Ok {
                         message: format!("{service} restarted"),

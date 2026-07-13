@@ -1,11 +1,12 @@
 use aes_gcm::{
-    aead::{Aead, KeyInit, OsRng},
+    aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
 use anyhow::{Context, Result};
 use argon2::{Argon2, Params as Argon2Params};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use tracing::warn;
 use zeroize::Zeroize;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -140,7 +141,7 @@ impl ConfigManager {
         Ok(Self { config_path, key })
     }
 
-    fn derive_key(password: &str, salt_dir: &PathBuf) -> Result<[u8; 32]> {
+    fn derive_key(password: &str, salt_dir: &Path) -> Result<[u8; 32]> {
         let salt_path = salt_dir.join(".salt");
         let salt = if salt_path.exists() {
             std::fs::read(&salt_path).context("Failed to read salt file")?
@@ -155,7 +156,9 @@ impl ConfigManager {
                 if let Ok(meta) = std::fs::metadata(&salt_path) {
                     let mut perms = meta.permissions();
                     perms.set_mode(0o600);
-                    let _ = std::fs::set_permissions(&salt_path, perms);
+                    if let Err(e) = std::fs::set_permissions(&salt_path, perms) {
+                        warn!("Failed to set permissions on {}: {e}", salt_path.display());
+                    }
                 }
             }
             salt
@@ -189,6 +192,10 @@ impl ConfigManager {
 
         let encrypted = std::fs::read(&self.config_path)
             .context("Failed to read encrypted config")?;
+
+        if encrypted.len() < 12 {
+            anyhow::bail!("Encrypted config file is too short ({} bytes) — expected at least 12 bytes for nonce", encrypted.len());
+        }
 
         let cipher = Aes256Gcm::new_from_slice(&self.key)
             .map_err(|e| anyhow::anyhow!("Invalid key length: {e}"))?;
@@ -233,7 +240,9 @@ impl ConfigManager {
             if let Ok(meta) = std::fs::metadata(&self.config_path) {
                 let mut perms = meta.permissions();
                 perms.set_mode(0o600);
-                let _ = std::fs::set_permissions(&self.config_path, perms);
+                if let Err(e) = std::fs::set_permissions(&self.config_path, perms) {
+                    warn!("Failed to set permissions on {}: {e}", self.config_path.display());
+                }
             }
         }
 

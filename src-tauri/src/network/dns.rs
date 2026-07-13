@@ -61,7 +61,7 @@ impl DnsHijacker {
 
         info!("DNS forwarder listening on {} (plain UDP to {})", bind_addr, self.config.upstream);
 
-        let upstream = UdpSocket::bind("0.0.0.0:0").await?;
+        let upstream = UdpSocket::bind("127.0.0.1:0").await?;
 
         self.listener_socket = Some(listener);
         self.upstream_socket = Some(upstream);
@@ -96,7 +96,9 @@ impl DnsHijacker {
                     };
 
                     if let Some(cached_response) = cache_hit {
-                        let _ = listener.send_to(&cached_response, src).await;
+                        if let Err(e) = listener.send_to(&cached_response, src).await {
+                            trace!("Failed to send cached DNS response to {}: {e}", src);
+                        }
                         trace!("DNS cache hit for {}", src);
                     } else {
                         let cache_clone = cache.clone();
@@ -131,7 +133,9 @@ impl DnsHijacker {
                                             let response = resp[..rn].to_vec();
                                             let mut cache = cache_clone.write().await;
                                             cache.put(query, response.clone());
-                                            let _ = listener_for_spawn.send_to(&response, src).await;
+                                            if let Err(e) = listener_for_spawn.send_to(&response, src).await {
+                                                trace!("Failed to send DNS response to {}: {e}", src);
+                                            }
                                         }
                                         Ok(Err(e)) => {
                                             warn!("DNS upstream recv error: {e}");
@@ -174,7 +178,9 @@ impl DnsHijacker {
 
         let mut cmd = tokio::process::Command::new("resolvectl");
         cmd.args(["domain", "lo", "~."]);
-        let _ = cmd.output().await;
+        if let Err(e) = cmd.output().await {
+            warn!("Failed to set resolvectl domain: {e}");
+        }
 
         Ok(())
     }
@@ -182,7 +188,9 @@ impl DnsHijacker {
     pub async fn restore_system_dns(&self) -> Result<()> {
         let mut cmd = tokio::process::Command::new("resolvectl");
         cmd.args(["dns", "lo", &self.config.upstream]);
-        let _ = cmd.output().await;
+        if let Err(e) = cmd.output().await {
+            warn!("Failed to restore system DNS: {e}");
+        }
         info!("System DNS restored to upstream {}", self.config.upstream);
         Ok(())
     }

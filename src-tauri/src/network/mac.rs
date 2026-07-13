@@ -114,15 +114,22 @@ impl MacSpoofer {
     }
 
     pub async fn restore_interface_original(iface: &str) -> Result<()> {
-        let output = Command::new("ethtool")
-            .args(["-P", iface])
-            .output()
-            .await;
-
-        if let Ok(output) = output {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            if let Some(mac) = stdout.split_whitespace().last() {
-                Self::spoof_interface(iface, mac).await?;
+        match Command::new("ethtool").args(["-P", iface]).output().await {
+            Ok(output) if output.status.success() => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if let Some(mac) = stdout.split_whitespace().last() {
+                    if mac.len() == 17 && mac.chars().filter(|&c| c == ':').count() == 5 {
+                        Self::spoof_interface(iface, mac).await?;
+                    } else {
+                        warn!("Could not parse permanent MAC from ethtool output for {}: '{}'", iface, stdout.trim());
+                    }
+                }
+            }
+            Ok(output) => {
+                warn!("ethtool -P {} failed (exit: {}): {}", iface, output.status, String::from_utf8_lossy(&output.stderr).trim());
+            }
+            Err(e) => {
+                warn!("ethtool not available, cannot restore MAC for {}: {e}", iface);
             }
         }
         Ok(())

@@ -143,16 +143,13 @@ impl NftablesManager {
 
         let mut child = cmd.spawn().context("Failed to spawn nft process")?;
 
-        let stdin = child.stdin.take().context("Failed to open nft stdin")?;
+        let mut stdin = child.stdin.take().context("Failed to open nft stdin")?;
         let rules_owned = rules.to_string();
 
-        let write_result = {
-            let mut stdin = stdin;
-            timeout(Duration::from_secs(5), stdin.write_all(rules_owned.as_bytes()))
-                .await
-                .context("Timeout writing nft rules to stdin")?
-                .context("Failed to write nft rules to stdin")
-        };
+        let write_result = timeout(Duration::from_secs(5), stdin.write_all(rules_owned.as_bytes()))
+            .await
+            .context("Timeout writing nft rules to stdin")?
+            .context("Failed to write nft rules to stdin");
 
         if let Err(e) = write_result {
             error!("Failed to write nft rules: {e}");

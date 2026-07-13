@@ -27,19 +27,6 @@ pub struct PanicStatus {
     pub kernel_caches_purged: bool,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct PanicEngineConfig {
-    pub excluded_interfaces: Vec<String>,
-}
-
-impl Default for PanicEngineConfig {
-    fn default() -> Self {
-        Self {
-            excluded_interfaces: vec!["lo".into()],
-        }
-    }
-}
-
 async fn run_command(cmd: &mut Command) -> Result<(String, String)> {
     let output = timeout(Duration::from_secs(COMMAND_TIMEOUT_SECS), cmd.output())
         .await

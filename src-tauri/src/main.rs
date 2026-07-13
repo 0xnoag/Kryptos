@@ -1,6 +1,6 @@
 use clap::Parser;
 use endpoint_privacy_suite::firewall::panic::PanicLevel;
-use endpoint_privacy_suite::{daemon, firewall, network, security};
+use endpoint_privacy_suite::{daemon, network, security};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -57,11 +57,11 @@ async fn main() -> anyhow::Result<()> {
     let _verifier = if do_verify {
         match security::verify::BinaryVerifier::from_hashes_file(&hashes_path, strict) {
             Ok(v) => {
-                info!("Binary hash verification enabled (strict: {strict})");
+                tracing::info!("Binary hash verification enabled (strict: {strict})");
                 let failures = v.verify_all();
                 if !failures.is_empty() {
                     for (path, reason) in &failures {
-                        error!("Pre-flight integrity failure — {path}: {reason}");
+                        tracing::error!("Pre-flight integrity failure — {path}: {reason}");
                     }
                     anyhow::bail!(
                         "{} binary integrity check(s) failed — refusing to start",

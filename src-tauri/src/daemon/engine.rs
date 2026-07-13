@@ -217,16 +217,19 @@ impl ProcessManager {
         info!("{} started (PID: {}, restart limit: {})", name_clone.display_name(), pid, max_restarts);
 
         let proc_watch = proc_arc.clone();
+        let verifier = self.verifier.clone();
         tokio::spawn(async move {
             Self::watch_process(
                 name_clone, child, status_tx, shutdown_rx,
                 proc_watch, base_delay, max_delay, max_restarts,
+                verifier,
             ).await;
         });
 
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn watch_process(
         name: ServiceName,
         mut child: Child,
@@ -236,6 +239,7 @@ impl ProcessManager {
         base_delay: Duration,
         max_delay: Duration,
         max_restarts: u32,
+        verifier: Option<BinaryVerifier>,
     ) {
         let mut current_child: Option<Child> = Some(child);
 
@@ -325,7 +329,7 @@ impl ProcessManager {
                         drop(proc);
 
                         // Verify binary hash before restart spawn
-                        if let Some(ref verifier) = self.verifier {
+                        if let Some(ref verifier) = verifier {
                             if let Err(e) = verifier.verify(&binary) {
                                 error!(
                                     "Integrity check failed on restart for {} at {}: {e}",
@@ -438,13 +442,7 @@ impl ProcessManager {
                 // (defensive — all callers should use all_status() instead)
                 match p.try_read() {
                     Ok(guard) => guard.status,
-                    Err(_) => {
-                        // Lock is contended; fall back to read().await
-                        // This path is very unlikely in practice
-                        let rt = tokio::runtime::Handle::current();
-                        let _ = rt.enter();
-                        ServiceStatus::Running // best-effort, caller should use all_status
-                    }
+                    Err(_) => ServiceStatus::Stopped,
                 }
             })
             .unwrap_or(ServiceStatus::Stopped)
@@ -487,7 +485,7 @@ impl Default for ProcessManager {
 }
 
 /// Set the binary verifier on an existing ProcessManager.
-/// Used during daemon initialization after registering services.
+/// Used during daemon initialization, before registering services.
 pub fn set_verifier(pm: &mut ProcessManager, verifier: BinaryVerifier) {
     pm.verifier = Some(verifier);
 }
