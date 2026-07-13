@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::process::{Child, Command};
-use tokio::sync::{mpsc, watch, RwLock};
+use tokio::sync::{mpsc, watch, Mutex, RwLock};
 use std::sync::Arc;
 use tracing::{error, info, warn};
 
@@ -66,19 +66,23 @@ struct ManagedProcess {
     started_at: Option<std::time::Instant>,
     status_tx: Option<watch::Sender<ServiceStatus>>,
     status_rx: watch::Receiver<ServiceStatus>,
-    shutdown_tx: Option<mpsc::Sender<()>>,
+    shutdown_tx: Option<mpsc::Sender<u8>>,
 }
 
 pub struct ProcessManager {
     services: HashMap<ServiceName, Arc<RwLock<ManagedProcess>>>,
-    restart_delay: Duration,
+    start_locks: HashMap<ServiceName, Arc<Mutex<()>>>,
+    base_restart_delay: Duration,
+    max_restart_delay: Duration,
 }
 
 impl ProcessManager {
     pub fn new() -> Self {
         Self {
             services: HashMap::new(),
-            restart_delay: Duration::from_secs(3),
+            start_locks: HashMap::new(),
+            base_restart_delay: Duration::from_secs(2),
+            max_restart_delay: Duration::from_secs(60),
         }
     }
 
@@ -103,6 +107,7 @@ impl ProcessManager {
             shutdown_tx: None,
         };
         self.services.insert(name, Arc::new(RwLock::new(proc)));
+        self.start_locks.insert(name, Arc::new(Mutex::new(())));
         info!("Registered service: {} at {}", name.display_name(), binary_path);
     }
 
@@ -129,17 +134,26 @@ impl ProcessManager {
     }
 
     pub async fn start(&mut self, name: ServiceName) -> Result<()> {
+        let lock = self.start_locks.get(&name)
+            .ok_or_else(|| anyhow::anyhow!("Service {} not registered", name.display_name()))?
+            .clone();
+
+        let _guard = lock.lock().await;
+
         let proc_arc = self
             .services
             .get(&name)
             .ok_or_else(|| anyhow::anyhow!("Service {} not registered", name.display_name()))?;
 
-        let mut proc = proc_arc.write().await;
-
-        if proc.status == ServiceStatus::Running {
-            info!("{} is already running", name.display_name());
-            return Ok(());
+        {
+            let proc = proc_arc.read().await;
+            if proc.status == ServiceStatus::Running || proc.status == ServiceStatus::Starting {
+                info!("{} is already {:?}", name.display_name(), proc.status);
+                return Ok(());
+            }
         }
+
+        let mut proc = proc_arc.write().await;
 
         let binary = &proc.binary_path;
         if !binary.exists() {
@@ -162,13 +176,14 @@ impl ProcessManager {
         let max_restarts = proc.max_restarts;
         let name_clone = name;
         let status_tx = proc.status_tx.clone();
-        let restart_delay = self.restart_delay;
+        let base_delay = self.base_restart_delay;
+        let max_delay = self.max_restart_delay;
 
         let child = Command::new(&binary_clone)
             .args(&args_clone)
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .kill_on_drop(true)
             .spawn()
             .context(format!("Failed to spawn {}", name_clone.display_name()))?;
@@ -184,7 +199,10 @@ impl ProcessManager {
 
         let proc_watch = proc_arc.clone();
         tokio::spawn(async move {
-            Self::watch_process(name_clone, child, status_tx, shutdown_rx, proc_watch, restart_delay).await;
+            Self::watch_process(
+                name_clone, child, status_tx, shutdown_rx,
+                proc_watch, base_delay, max_delay, max_restarts,
+            ).await;
         });
 
         Ok(())
@@ -196,52 +214,128 @@ impl ProcessManager {
         status_tx: Option<watch::Sender<ServiceStatus>>,
         mut shutdown_rx: mpsc::Receiver<u8>,
         proc_arc: Arc<RwLock<ManagedProcess>>,
-        restart_delay: Duration,
+        base_delay: Duration,
+        max_delay: Duration,
+        max_restarts: u32,
     ) {
-        let exit_status = tokio::select! {
-            _ = shutdown_rx.recv() => {
-                info!("{} shutdown requested, killing", name.display_name());
-                let _ = child.kill().await;
-                let status = child.wait().await;
-                if let Some(ref tx) = status_tx {
-                    let _ = tx.send(ServiceStatus::Stopped);
-                }
-                let mut proc = proc_arc.write().await;
-                proc.status = ServiceStatus::Stopped;
-                return;
-            }
-            status = child.wait() => {
-                status
-            }
-        };
+        let mut current_child: Option<Child> = Some(child);
 
-        let status = match exit_status {
-            Ok(s) => {
-                warn!("{} exited with status: {}", name.display_name(), s);
-                let mut proc = proc_arc.write().await;
-                proc.restart_count += 1;
-                if proc.restart_count <= proc.max_restarts {
-                    proc.status = ServiceStatus::Restarting;
-                    drop(proc);
-                    tokio::time::sleep(restart_delay).await;
-                    info!("Restarting {} (attempt {}/{})", name.display_name(),
-                        proc_arc.read().await.restart_count, proc_arc.read().await.max_restarts);
-                    drop(proc_arc);
+        loop {
+            let child = match current_child.take() {
+                Some(c) => c,
+                None => break,
+            };
+
+            let output = tokio::select! {
+                _ = shutdown_rx.recv() => {
+                    info!("{} shutdown requested, killing", name.display_name());
+                    let _ = child.kill().await;
+                    let _ = child.wait().await;
+                    if let Some(ref tx) = status_tx {
+                        let _ = tx.send(ServiceStatus::Stopped);
+                    }
+                    let mut proc = proc_arc.write().await;
+                    proc.status = ServiceStatus::Stopped;
                     return;
                 }
-                ServiceStatus::Failed(format!("Exited with {}", s))
-            }
-            Err(e) => {
-                error!("{} wait error: {}", name.display_name(), e);
-                ServiceStatus::Failed(format!("Wait error: {e}"))
-            }
-        };
+                output = child.wait_with_output() => {
+                    output
+                }
+            };
 
-        if let Some(ref tx) = status_tx {
-            let _ = tx.send(status);
+            match output {
+                Ok(output) => {
+                    let stderr_str = String::from_utf8_lossy(&output.stderr);
+                    let stdout_str = String::from_utf8_lossy(&output.stdout);
+
+                    if !stdout_str.trim().is_empty() {
+                        for line in stdout_str.lines() {
+                            info!("{} [stdout]: {}", name.display_name(), line);
+                        }
+                    }
+                    if !stderr_str.trim().is_empty() {
+                        for line in stderr_str.lines() {
+                            warn!("{} [stderr]: {}", name.display_name(), line);
+                        }
+                    }
+
+                    let exit_code = output.status;
+                    warn!("{} exited with status: {}", name.display_name(), exit_code);
+
+                    let mut proc = proc_arc.write().await;
+                    proc.restart_count += 1;
+                    let attempt = proc.restart_count;
+
+                    if attempt <= max_restarts {
+                        let exp = std::cmp::min(attempt.saturating_sub(1), 5);
+                        let multiplier = 2u64.pow(exp);
+                        let delay_secs = base_delay.as_secs_f64() * (multiplier as f64);
+                        let delay = Duration::from_secs_f64(delay_secs.min(max_delay.as_secs_f64()));
+
+                        proc.status = ServiceStatus::Restarting;
+                        drop(proc);
+
+                        info!(
+                            "Restarting {} in {:.1}s (attempt {}/{})",
+                            name.display_name(),
+                            delay.as_secs_f64(),
+                            attempt,
+                            max_restarts,
+                        );
+                        tokio::time::sleep(delay).await;
+
+                        let proc = proc_arc.read().await;
+                        let binary = proc.binary_path.clone();
+                        let args = proc.args.clone();
+                        drop(proc);
+
+                        match Command::new(&binary)
+                            .args(&args)
+                            .stdin(Stdio::null())
+                            .stdout(Stdio::piped())
+                            .stderr(Stdio::piped())
+                            .kill_on_drop(true)
+                            .spawn()
+                        {
+                            Ok(new_child) => {
+                                current_child = Some(new_child);
+                                continue;
+                            }
+                            Err(e) => {
+                                error!("Failed to restart {}: {e}", name.display_name());
+                                let status = ServiceStatus::Failed(format!("Restart failed: {e}"));
+                                if let Some(ref tx) = status_tx {
+                                    let _ = tx.send(status);
+                                }
+                                let mut proc = proc_arc.write().await;
+                                proc.status = status;
+                                break;
+                            }
+                        }
+                    } else {
+                        let status = ServiceStatus::Failed(
+                            format!("Exceeded max restarts ({max_restarts}), last exit: {exit_code}")
+                        );
+                        if let Some(ref tx) = status_tx {
+                            let _ = tx.send(status);
+                        }
+                        let mut proc = proc_arc.write().await;
+                        proc.status = status;
+                        break;
+                    }
+                }
+                Err(e) => {
+                    error!("{} wait error: {}", name.display_name(), e);
+                    let status = ServiceStatus::Failed(format!("Wait error: {e}"));
+                    if let Some(ref tx) = status_tx {
+                        let _ = tx.send(status);
+                    }
+                    let mut proc = proc_arc.write().await;
+                    proc.status = status;
+                    break;
+                }
+            }
         }
-        let mut proc = proc_arc.write().await;
-        proc.status = status;
     }
 
     pub async fn stop(&mut self, name: ServiceName) -> Result<()> {
