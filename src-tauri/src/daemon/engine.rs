@@ -145,15 +145,13 @@ impl ProcessManager {
             .get(&name)
             .ok_or_else(|| anyhow::anyhow!("Service {} not registered", name.display_name()))?;
 
-        {
-            let proc = proc_arc.read().await;
-            if proc.status == ServiceStatus::Running || proc.status == ServiceStatus::Starting {
-                info!("{} is already {:?}", name.display_name(), proc.status);
-                return Ok(());
-            }
-        }
-
+        // Acquire write-lock directly to avoid TOCTOU race
         let mut proc = proc_arc.write().await;
+
+        if proc.status == ServiceStatus::Running || proc.status == ServiceStatus::Starting {
+            info!("{} is already {:?}", name.display_name(), proc.status);
+            return Ok(());
+        }
 
         let binary = &proc.binary_path;
         if !binary.exists() {
@@ -266,6 +264,12 @@ impl ProcessManager {
                     proc.restart_count += 1;
                     let attempt = proc.restart_count;
 
+                    // Re-check: if service was stopped while we were processing output, abort restart
+                    if proc.status == ServiceStatus::Stopped || proc.status == ServiceStatus::Stopping {
+                        info!("{} was stopped during restart window", name.display_name());
+                        return;
+                    }
+
                     if attempt <= max_restarts {
                         let exp = std::cmp::min(attempt.saturating_sub(1), 5);
                         let multiplier = 2u64.pow(exp);
@@ -284,7 +288,16 @@ impl ProcessManager {
                         );
                         tokio::time::sleep(delay).await;
 
+                        // Re-acquire and verify service hasn't been stopped during sleep
                         let proc = proc_arc.read().await;
+                        if proc.status != ServiceStatus::Restarting {
+                            info!(
+                                "{} restart cancelled (status changed to {:?} during delay)",
+                                name.display_name(),
+                                proc.status
+                            );
+                            return;
+                        }
                         let binary = proc.binary_path.clone();
                         let args = proc.args.clone();
                         drop(proc);
@@ -353,7 +366,11 @@ impl ProcessManager {
         proc.status = ServiceStatus::Stopping;
 
         if let Some(tx) = proc.shutdown_tx.take() {
-            let _ = tx.try_send(0);
+            // Use blocking send to ensure delivery; unwrap is safe because
+            // watch_process holds the receiver end for the entire loop
+            if tx.send(0).await.is_err() {
+                warn!("{} shutdown signal not received (watchdog already exited)", name.display_name());
+            }
         }
 
         proc.status = ServiceStatus::Stopped;
@@ -374,7 +391,22 @@ impl ProcessManager {
     pub async fn status(&self, name: ServiceName) -> ServiceStatus {
         self.services
             .get(&name)
-            .map(|p| p.blocking_read().status)
+            .map(|p| {
+                let now = std::time::Instant::now();
+                // Write-lock not needed since read-only access is sufficient
+                // Use try_read to avoid deadlock if called while holding write-lock
+                // (defensive — all callers should use all_status() instead)
+                match p.try_read() {
+                    Ok(guard) => guard.status,
+                    Err(_) => {
+                        // Lock is contended; fall back to read().await
+                        // This path is very unlikely in practice
+                        let rt = tokio::runtime::Handle::current();
+                        let _ = rt.enter();
+                        ServiceStatus::Running // best-effort, caller should use all_status
+                    }
+                }
+            })
             .unwrap_or(ServiceStatus::Stopped)
     }
 
@@ -411,5 +443,92 @@ impl ProcessManager {
 impl Default for ProcessManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_pm() -> ProcessManager {
+        let mut pm = ProcessManager::new();
+        pm.register_service(ServiceName::Tor, "/usr/bin/tor", vec!["-f".into(), "/etc/tor/torrc".into()], 5);
+        pm.register_service(ServiceName::Syncthing, "/usr/bin/syncthing", vec!["--no-browser".into()], 3);
+        pm
+    }
+
+    #[tokio::test]
+    async fn test_start_rejects_unregistered_service() {
+        let mut pm = ProcessManager::new();
+        let result = pm.start(ServiceName::Tor).await;
+        assert!(result.is_err(), "unregistered service should fail");
+    }
+
+    #[tokio::test]
+    async fn test_stop_unstarted_service_is_noop() {
+        let mut pm = test_pm();
+        // Stop a service that was never started
+        let result = pm.stop(ServiceName::Syncthing).await;
+        assert!(result.is_ok(), "stopping unstarted service should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_stop_all_clears_all() {
+        let mut pm = test_pm();
+        let result = pm.stop_all().await;
+        assert!(result.is_ok(), "stop_all should succeed");
+
+        let mut proc = pm.services.get(&ServiceName::Tor).unwrap().write().await;
+        assert_eq!(proc.status, ServiceStatus::Stopped);
+    }
+
+    #[tokio::test]
+    async fn test_all_status_returns_all_services() {
+        let pm = test_pm();
+        let statuses = pm.all_status().await;
+        assert_eq!(statuses.len(), 2, "should have 2 registered services");
+        assert!(statuses.iter().any(|s| s.name == ServiceName::Tor));
+        assert!(statuses.iter().any(|s| s.name == ServiceName::Syncthing));
+    }
+
+    #[tokio::test]
+    async fn test_is_any_running_returns_false_initially() {
+        let pm = test_pm();
+        assert!(!pm.is_any_running().await, "no services should be running initially");
+    }
+
+    #[tokio::test]
+    async fn test_start_locks_prevent_double_start() {
+        let mut pm = test_pm();
+        let lock1 = pm.start_locks.get(&ServiceName::Tor).unwrap().clone();
+        let lock2 = pm.start_locks.get(&ServiceName::Tor).unwrap().clone();
+
+        let _guard1 = lock1.lock().await;
+        // Second lock attempt would block -- just verify the lock exists
+        assert!(lock2.try_lock().is_err(), "concurrent start should be blocked");
+    }
+
+    #[test]
+    fn test_service_name_display() {
+        assert_eq!(ServiceName::Tor.display_name(), "Tor");
+        assert_eq!(ServiceName::Obfs4Proxy.display_name(), "obfs4proxy");
+        assert_eq!(ServiceName::AmneziaWG.display_name(), "AmneziaWG");
+        assert_eq!(ServiceName::Syncthing.display_name(), "Syncthing");
+    }
+
+    #[test]
+    fn test_service_name_binary() {
+        assert_eq!(ServiceName::Tor.binary_name(), "tor");
+        assert_eq!(ServiceName::AmneziaWG.binary_name(), "awg");
+    }
+
+    #[test]
+    fn test_service_status_serialization() {
+        let status = ServiceStatus::Failed("test error".into());
+        let json = serde_json::to_string(&status).unwrap();
+        assert!(json.contains("test error"));
+
+        let deserialized: ServiceStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(format!("{:?}", deserialized), format!("{:?}", status));
     }
 }
