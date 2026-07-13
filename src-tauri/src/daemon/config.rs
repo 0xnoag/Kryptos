@@ -3,7 +3,7 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
 };
 use anyhow::{Context, Result};
-use argon2::Argon2;
+use argon2::{Argon2, Params as Argon2Params};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use zeroize::Zeroize;
@@ -136,11 +136,31 @@ impl ConfigManager {
             use rand::RngCore;
             rand::rngs::OsRng.fill_bytes(&mut salt);
             std::fs::write(&salt_path, &salt).context("Failed to write salt file")?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if let Ok(meta) = std::fs::metadata(&salt_path) {
+                    let mut perms = meta.permissions();
+                    perms.set_mode(0o600);
+                    let _ = std::fs::set_permissions(&salt_path, perms);
+                }
+            }
             salt
         };
 
         let mut key = [0u8; 32];
-        Argon2::default()
+        let params = Argon2Params::new(
+            65536,
+            3,
+            4,
+            Some(32),
+        ).context("Failed to create Argon2 params")?;
+
+        Argon2::new(
+            argon2::Algorithm::Argon2id,
+            argon2::Version::V0x13,
+            params,
+        )
             .hash_password_into(password.as_bytes(), &salt, &mut key)
             .context("Argon2 key derivation failed")?;
 
@@ -194,6 +214,23 @@ impl ConfigManager {
         std::fs::write(&self.config_path, &output)
             .context("Failed to write encrypted config")?;
 
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(meta) = std::fs::metadata(&self.config_path) {
+                let mut perms = meta.permissions();
+                perms.set_mode(0o600);
+                let _ = std::fs::set_permissions(&self.config_path, perms);
+            }
+        }
+
         Ok(())
+    }
+}
+
+impl Drop for ConfigManager {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.key.zeroize();
     }
 }
