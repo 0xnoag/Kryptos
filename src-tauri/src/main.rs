@@ -1,6 +1,6 @@
 use clap::Parser;
 use endpoint_privacy_suite::firewall::panic::PanicLevel;
-use endpoint_privacy_suite::{daemon, firewall, network};
+use endpoint_privacy_suite::{daemon, firewall, network, security};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -15,6 +15,18 @@ struct Cli {
 
     #[arg(short, long, help = "Run in foreground (default: daemonize)")]
     foreground: bool,
+
+    #[arg(
+        long = "verify-signatures",
+        help = "Verify SHA-256 hashes of external binaries (tor, obfs4proxy, awg, syncthing) against .hashes file before starting"
+    )]
+    verify_signatures: bool,
+
+    #[arg(
+        long = "strict-verification",
+        help = "Fail if any binary hash is missing from .hashes file (implies --verify-signatures)"
+    )]
+    strict_verification: bool,
 }
 
 #[tokio::main]
@@ -37,8 +49,45 @@ async fn main() -> anyhow::Result<()> {
         std::process::exit(1);
     }
 
-    let daemon =
-        endpoint_privacy_suite::EndpointPrivacyDaemon::new(&cli.config_dir, &cli.password).await?;
+    let strict = cli.strict_verification;
+    let do_verify = cli.strict_verification || cli.verify_signatures;
+
+    // Pre-flight: verify all configured binary hashes before starting daemon
+    let hashes_path = std::path::Path::new(&cli.config_dir).join(".hashes");
+    let _verifier = if do_verify {
+        match security::verify::BinaryVerifier::from_hashes_file(&hashes_path, strict) {
+            Ok(v) => {
+                info!("Binary hash verification enabled (strict: {strict})");
+                let failures = v.verify_all();
+                if !failures.is_empty() {
+                    for (path, reason) in &failures {
+                        error!("Pre-flight integrity failure — {path}: {reason}");
+                    }
+                    anyhow::bail!(
+                        "{} binary integrity check(s) failed — refusing to start",
+                        failures.len()
+                    );
+                }
+                Some(v)
+            }
+            Err(e) => {
+                error!("Failed to load .hashes file for verification: {e}");
+                if strict {
+                    anyhow::bail!("Strict verification requested but .hashes file is invalid");
+                }
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let daemon = endpoint_privacy_suite::EndpointPrivacyDaemon::new(
+        &cli.config_dir,
+        &cli.password,
+        strict,
+    )
+    .await?;
 
     let pm = daemon.process_manager.clone();
     let pe = daemon.panic_engine.clone();

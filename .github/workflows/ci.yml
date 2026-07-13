@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main", "fix/*", "feature/*" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  security-audit:
+    name: Security audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: Run cargo audit (dependency vulnerabilities)
+        run: cargo audit
+        working-directory: src-tauri
+
+      - name: Run cargo deny (licenses + advisories + sources)
+        run: cargo deny check
+        working-directory: src-tauri
+
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file xz-utils libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Build
+        run: cargo build --release
+        working-directory: src-tauri
+
+      - name: Run tests
+        run: cargo test --release
+        working-directory: src-tauri
+
+  supply-chain:
+    name: Supply chain
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify Cargo.lock is committed
+        run: test -f src-tauri/Cargo.lock && echo "Cargo.lock is committed"
+
+      - name: Check Cargo.lock is up to date
+        run: cargo generate-lockfile && git diff --exit-code src-tauri/Cargo.lock
+        working-directory: src-tauri

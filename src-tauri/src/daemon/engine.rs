@@ -1,3 +1,4 @@
+use crate::security::verify::BinaryVerifier;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -74,6 +75,7 @@ pub struct ProcessManager {
     start_locks: HashMap<ServiceName, Arc<Mutex<()>>>,
     base_restart_delay: Duration,
     max_restart_delay: Duration,
+    verifier: Option<BinaryVerifier>,
 }
 
 impl ProcessManager {
@@ -83,6 +85,17 @@ impl ProcessManager {
             start_locks: HashMap::new(),
             base_restart_delay: Duration::from_secs(2),
             max_restart_delay: Duration::from_secs(60),
+            verifier: None,
+        }
+    }
+
+    pub fn with_verifier(verifier: BinaryVerifier) -> Self {
+        Self {
+            services: HashMap::new(),
+            start_locks: HashMap::new(),
+            base_restart_delay: Duration::from_secs(2),
+            max_restart_delay: Duration::from_secs(60),
+            verifier: Some(verifier),
         }
     }
 
@@ -160,6 +173,14 @@ impl ProcessManager {
                 binary.display(),
                 name.binary_name()
             );
+        }
+
+        if let Some(ref verifier) = self.verifier {
+            verifier.verify(binary).context(format!(
+                "Integrity check failed for {} at {}",
+                name.display_name(),
+                binary.display()
+            ))?;
         }
 
         proc.status = ServiceStatus::Starting;
@@ -300,7 +321,26 @@ impl ProcessManager {
                         }
                         let binary = proc.binary_path.clone();
                         let args = proc.args.clone();
+                        let name_for_verify = proc.name;
                         drop(proc);
+
+                        // Verify binary hash before restart spawn
+                        if let Some(ref verifier) = self.verifier {
+                            if let Err(e) = verifier.verify(&binary) {
+                                error!(
+                                    "Integrity check failed on restart for {} at {}: {e}",
+                                    name_for_verify.display_name(),
+                                    binary.display()
+                                );
+                                let status = ServiceStatus::Failed(format!("Integrity check failed: {e}"));
+                                if let Some(ref tx) = status_tx {
+                                    let _ = tx.send(status);
+                                }
+                                let mut proc = proc_arc.write().await;
+                                proc.status = status;
+                                break;
+                            }
+                        }
 
                         match Command::new(&binary)
                             .args(&args)
@@ -444,6 +484,12 @@ impl Default for ProcessManager {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Set the binary verifier on an existing ProcessManager.
+/// Used during daemon initialization after registering services.
+pub fn set_verifier(pm: &mut ProcessManager, verifier: BinaryVerifier) {
+    pm.verifier = Some(verifier);
 }
 
 #[cfg(test)]

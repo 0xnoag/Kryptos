@@ -87,3 +87,43 @@
 
 ### Frontend Updates
 - `src/lib/daemon-context.tsx`: Updated `PanicStatus` interface to use `kernel_caches_purged` (was `memory_flushed`), matching renamed backend field.
+
+---
+
+## [Unreleased] — Build Reproducibility & Supply Chain Security
+
+### Reproducible Builds
+- **`Cargo.lock` committed**: Removed `src-tauri/Cargo.lock` from `.gitignore`. The lockfile pins all transitive dependencies to specific versions, ensuring deterministic builds across environments.
+
+### Binary Integrity Verification (`security/verify.rs`)
+- **New module `security`**: Contains `BinaryVerifier` — verifies SHA-256 hashes of external binaries (tor, obfs4proxy, awg, syncthing) before execution.
+- **`.hashes` file**: TOML-format file in config directory (`/etc/endpoint-privacy/.hashes`) maps binary paths to expected hex SHA-256 hashes with source annotations.
+- **Pre-flight check**: `--verify-signatures` flag performs batch verification of all configured hashes before daemon start. `--strict-verification` mode refuses to start if any binary lacks a hash entry.
+- **Runtime check**: `ProcessManager::start()` and restart spawn paths both call `verifier.verify()` before executing the binary. A hash mismatch is treated as an integrity failure — the binary is not spawned and the error is propagated.
+- **Graceful degradation**: Without a `.hashes` file, warnings are logged and binaries are spawned with only a filesystem existence check (legacy behavior).
+- **Makefile integration**: `make hashes` generates the `.hashes` file from installed system packages using `dpkg` to record version provenance.
+
+### Supply Chain CI (`.github/workflows/ci.yml`)
+- **`security-audit` job**: Runs `cargo audit` (dependency vulnerability scanning) and `cargo deny check` (license compliance + advisory checking + source allowlisting).
+- **`supply-chain` job**: Verifies `Cargo.lock` is committed and up-to-date (`cargo generate-lockfile && git diff --exit-code`).
+- **`test` job**: Full `cargo build --release` + `cargo test` on Ubuntu with all Tauri system dependencies.
+
+### Cargo Deny Configuration (`deny.toml`)
+- **Advisories**: Vulnerabilities and unsoundness are denied; unmaintained and yanked crates produce warnings.
+- **Licenses**: Only OSI/FSF-approved licenses allowed (MIT, Apache-2.0, BSD, ISC, Zlib, etc.). Unknown or unlicensed crates are denied.
+- **Sources**: Only crates.io registries allowed. Wildcard dependencies are denied; duplicate crate versions produce warnings.
+
+### Code Signing Infrastructure (`Makefile`)
+- **`make release`**: Builds release binary and copies it to `dist/endpoint-privacy-daemon-<version>`.
+- **`make sign`**: GPG-detached ASCII-armored signature of the binary + clearsigned `SHA256SUMS`. Requires `GPG_KEY=your@email.com`.
+- **`make verify-signature`**: Validates GPG signature of a release binary (`BINARY=endpoint-privacy-daemon-x.y.z`).
+- **`make audit`**: Convenience target for `cargo audit`.
+- **`make hashes`**: Generates `.hashes` from installed system packages via `dpkg`.
+
+### Dependency changes (`Cargo.toml`)
+- **Added**: `sha2 = "0.10"`, `hex = "0.4"` for SHA-256 computation.
+- **Removed**: `ctrlc = "3.4"` (unused — `tokio::signal::ctrl_c()` is used instead).
+
+### Documentation
+- `SECURITY.md`: New "Binary Integrity Verification" section with `.hashes` setup guide, policy explanation, and CLI flags. New "Supply Chain Security" section documenting reproducible builds, CI pipeline, and release signing. Added binary hashes row to known limitations table.
+- `CHANGELOG.md`: This entry.
