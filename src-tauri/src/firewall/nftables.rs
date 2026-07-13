@@ -2,14 +2,15 @@ use anyhow::{bail, Context, Result};
 use std::collections::HashSet;
 use std::path::Path;
 use std::process::Stdio;
+use std::time::Duration;
+use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
+use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 
 const NFT_BINARY: &str = "/usr/sbin/nft";
 const TABLE_NAME: &str = "endpoint_privacy";
-const CHAIN_INPUT: &str = "privacy_input";
-const CHAIN_OUTPUT: &str = "privacy_output";
-const CHAIN_FORWARD: &str = "privacy_forward";
+const COMMAND_TIMEOUT_SECS: u64 = 15;
 
 const NFT_FLUSH: &str = "flush ruleset";
 
@@ -122,8 +123,8 @@ impl NftablesManager {
     }
 
     async fn nft_execute(&self, rules: &str) -> Result<String> {
-        let nft_path = self.binary_path.clone();
-        let mut cmd = Command::new(&nft_path);
+        let nft_path = &self.binary_path;
+        let mut cmd = Command::new(nft_path);
         cmd.args(["-f", "-"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -134,15 +135,27 @@ impl NftablesManager {
         let stdin = child.stdin.take().context("Failed to open nft stdin")?;
         let rules_owned = rules.to_string();
 
-        tokio::spawn(async move {
-            use tokio::io::AsyncWriteExt;
+        let write_result = {
             let mut stdin = stdin;
-            if let Err(e) = stdin.write_all(rules_owned.as_bytes()).await {
-                error!("Failed to write nft rules to stdin: {e}");
-            }
-        });
+            timeout(Duration::from_secs(5), stdin.write_all(rules_owned.as_bytes()))
+                .await
+                .context("Timeout writing nft rules to stdin")?
+                .context("Failed to write nft rules to stdin")
+        };
 
-        let output = child.wait_with_output().await?;
+        if let Err(e) = write_result {
+            error!("Failed to write nft rules: {e}");
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            return Err(e);
+        }
+
+        drop(stdin);
+
+        let output = timeout(Duration::from_secs(COMMAND_TIMEOUT_SECS), child.wait_with_output())
+            .await
+            .context("nft command timed out")?
+            .context("nft process failed")?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -160,11 +173,30 @@ impl NftablesManager {
             warn!("nft binary not found at {}", self.binary_path);
             return false;
         }
+
         let mut cmd = Command::new(&self.binary_path);
         cmd.arg("--version")
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        cmd.status().await.map(|s| s.success()).unwrap_or(false)
+
+        let status = timeout(Duration::from_secs(5), cmd.status())
+            .await;
+
+        match status {
+            Ok(Ok(s)) if s.success() => true,
+            Ok(Ok(s)) => {
+                warn!("nft --version returned non-zero: {s}");
+                false
+            }
+            Ok(Err(e)) => {
+                warn!("Failed to check nft version: {e}");
+                false
+            }
+            Err(_) => {
+                warn!("nft --version timed out");
+                false
+            }
+        }
     }
 
     pub async fn flush_ruleset(&self) -> Result<()> {
@@ -203,11 +235,14 @@ impl NftablesManager {
         }
 
         let mut cmd = Command::new(&self.binary_path);
-        cmd.args(["-a", "list", "table", "inet", TABLE_NAME])
+        cmd.args(["list", "table", "inet", TABLE_NAME])
             .stdout(Stdio::piped())
-            .stderr(Stdio::null());
+            .stderr(Stdio::piped());
 
-        let output = cmd.output().await?;
+        let output = timeout(Duration::from_secs(10), cmd.output())
+            .await
+            .context("nft list command timed out")?
+            .context("nft list command failed")?;
 
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -218,6 +253,14 @@ impl NftablesManager {
                     _ => Ok(KillSwitchStatus::Partial(stdout.to_string())),
                 };
             }
+        }
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.contains("No such file or directory") || stderr.contains("does not exist") {
+                return Ok(KillSwitchStatus::Inactive);
+            }
+            warn!("nft list returned non-zero (table may not exist): {stderr}");
         }
 
         Ok(KillSwitchStatus::Inactive)
