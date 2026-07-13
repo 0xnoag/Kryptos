@@ -31,14 +31,51 @@
 │                           │                             │
 │  ┌────────────────────────▼──────────────────────────┐ │
 │  │   Traffic Classifier (Split Routing)               │ │
-│  │   TCP → Tor · UDP → AmneziaWG · DNS → Local DoH  │ │
+│   │   TCP → Tor · UDP → AmneziaWG · DNS → Local UDP  │ │
 │  └───────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 ```
 
-### Stack
+> **Security documentation**: See [THREAT_MODEL.md](THREAT_MODEL.md) for adversary scope and [SECURITY.md](SECURITY.md) for current privilege model, known limitations, and vulnerability reporting.
 
-| Layer | Technology |
+## Current Status / Known Issues
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| nftables kill switch | ✅ Implemented | 3 levels (soft/hard/nuclear), atomic rule loading |
+| Panic engine | ✅ Implemented | Real state tracking, interface allowlist |
+| Process lifecycle management | ✅ Implemented | Exponential backoff, max-restart circuit breaker |
+| Encrypted config | ✅ Implemented | AES-256-GCM + Argon2id, zeroized on drop |
+| Unix socket IPC | ✅ Implemented | `0o700` permissions, input validation |
+| Tor service management | ✅ Implemented | |
+| AmneziaWG service management | ✅ Implemented | |
+| obfs4proxy management | ✅ Implemented | |
+| Syncthing management | ✅ Implemented | |
+| MAC spoofing | ✅ Implemented | Locally-administered bit set correctly |
+| Traffic classifier | ✅ Implemented | Informational only — enforcement via nftables |
+| Routing / sysctl helpers | ✅ Implemented | IPv6 blocking, policy routing |
+| React/Tauri UI | ✅ Implemented | 5 pages with real-time polling |
+| DNS encryption (DoH/DoT) | ❌ Not implemented | DNS is **plain UDP** — known leak. Config has `doh_url` field reserved for future use. |
+| nftables rule persistence across reboot | ❌ Not implemented | Rules survive daemon crash (kernel state) but not reboot. Requires systemd `ExecStartPre` or a oneshot service. |
+| Privilege separation | ❌ Not implemented | Daemon runs entirely as root. See SECURITY.md for proposed split. |
+| IPv6 tunnel support | ❌ Not implemented | IPv6 is disabled via sysctl at daemon start. Nftables kill switch drops IPv6 by default. |
+| Automatic service restart on crash | ✅ Implemented | Exponential backoff (2s base, 60s max), max-restarts configurable per service |
+| Graceful shutdown with kill switch | ✅ Implemented | Nuclear panic activated on shutdown if configured |
+
+### Boot / Reboot Ordering
+
+1. **Kernel boots** — no nftables rules active, all traffic allowed
+2. **systemd starts network** — brief window of unprotected connectivity
+3. **kryptos-daemon.service starts** (should be ordered early via `After=network-pre.target` with `Wants=network.target`):
+   - Detects any pre-existing nftables state
+   - Applies kill switch rules (if configured for autostart)
+   - Starts tunnel services (tor, awg)
+4. **nftables rules are in-kernel** — they survive daemon crash or panic, but NOT reboot
+5. On **clean shutdown**: daemon activates nuclear kill switch, then stops tunnels
+
+> ⚠️ Nftables rules are not persisted to disk. After a reboot, there is a window before the daemon starts where no firewall rules are active. Use systemd ordering (`After=network-pre.target`) and consider a `network-pre` oneshot service to restore nftables rules early in boot.
+
+### Stack
 |-------|-----------|
 | Backend | Rust (tokio async, nix, libc) |
 | Frontend | React 18 + Vite + TailwindCSS |
@@ -66,7 +103,7 @@ Traffic is classified by protocol and port:
 |-------------|-------|
 | TCP (all) | → Tor SOCKS5 (`127.0.0.1:9050`) |
 | UDP (VoIP, gaming, streaming) | → AmneziaWG tunnel (`awg0`) |
-| DNS (53/853) | → Local DoH resolver (`127.0.0.1:53`) |
+| DNS (53/853) | → Local DNS forwarder (`127.0.0.1:53`, plain UDP upstream) |
 | Local network | → Direct (bypass) |
 
 VoIP/gaming ports auto-detected: 3478-3481 (STUN/TURN), 5000-6000, 1194-1195 (OpenVPN), 27015-27030, 4380, 16384-32767.
@@ -89,11 +126,13 @@ All settings stored encrypted at rest:
 - Zeroize secure memory wiping on drop
 - Password supplied via `EPS_PASSWORD` env variable or CLI flag
 
-### 5. DNS Hijacking (`network/dns.rs`)
-- Local UDP DNS listener on `127.0.0.1:53`
-- Forwards queries to upstream (Cloudflare 1.1.1.1 by default)
+### 5. DNS Forwarding (`network/dns.rs`)
+- Local DNS listener on `127.0.0.1:53`
+- Forwards queries to upstream resolver over **plain UDP** (port 53)
 - LRU cache (configurable, default 4096 entries)
 - Overrides system DNS via `resolvectl`
+
+> ⚠️ **DNS is NOT encrypted**. Queries are forwarded over plain UDP to the upstream resolver (default: `1.1.1.1`). DNS-over-HTTPS (DoH) is not yet implemented — the `doh_url` config field is reserved for future use. Until DoH is implemented, DNS queries are visible in plaintext to the ISP and local network. The kill switch ensures all *other* traffic is tunneled, but DNS itself leaks.
 
 ### 6. MAC Spoofing (`network/mac.rs`)
 - Generates random MACs with locally administered bit set
@@ -219,7 +258,7 @@ src-tauri/src/
 │   └── ipc.rs               # Unix socket JSON-RPC server
 ├── network/
 │   ├── classifier.rs        # TCP/UDP/DNS traffic classifier
-│   ├── dns.rs               # Local DoH resolver with cache
+│   ├── dns.rs               # Local DNS forwarder (plain UDP, DoH planned)
 │   ├── mac.rs               # MAC address spoofing
 │   └── routing.rs           # Policy routing + sysctl
 ├── crypto/
@@ -246,12 +285,13 @@ src/
 ## Security Model
 
 1. **Defense in Depth** — Compromise of one layer does not expose others
-2. **Least Privilege** — Daemon runs as root (required for nftables), child processes drop privileges where possible
+2. **Least Privilege** — Daemon runs as root (required for nftables), child processes drop privileges where possible. **Known gap**: privilege separation is not yet implemented — see [SECURITY.md](SECURITY.md).
 3. **Memory Safety** — Rust with `unsafe` only for syscalls (documented in code)
 4. **No Shell Injection** — All system commands use `Command::new()` with pre-split args, never `sh -c`
-5. **Encrypted at Rest** — All config files use AES-256-GCM with Argon2-derived keys
-6. **Zero-Leak Guarantee** — Kill switch installs nftables rules before any tunnel is brought up
-7. **Secure IPC** — Unix socket with `0700` permissions, no network exposure
+5. **Encrypted at Rest** — All config files use AES-256-GCM + Argon2id with explicit parameters. Keys are zeroized on drop.
+6. **Zero-Leak Guarantee** — Kill switch installs nftables rules before any tunnel is brought up. Rules survive daemon crash (kernel state persists).
+7. **Secure IPC** — Unix socket with `0700` permissions, input validation on payload size and character whitelist.
+8. **DNS is NOT encrypted** — Queries are forwarded as plain UDP. DoH is planned.
 
 ---
 
