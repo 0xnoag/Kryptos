@@ -54,7 +54,8 @@ impl IpcServer {
                 .context("Failed to remove existing socket file")?;
         }
 
-        let dir = sock_path.parent().unwrap();
+        let dir = sock_path.parent()
+            .context("Socket path has no parent directory")?;
         std::fs::create_dir_all(dir)
             .context("Failed to create socket directory")?;
 
@@ -297,5 +298,73 @@ fn service_name_from_str(s: &str) -> Option<ServiceName> {
         "amneziawg" | "awg" => Some(ServiceName::AmneziaWG),
         "syncthing" => Some(ServiceName::Syncthing),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_request_rejects_empty_service() {
+        let req = IpcRequest::StartService { service: "".into() };
+        assert!(validate_request(&req).is_err(), "empty service name rejected");
+    }
+
+    #[test]
+    fn test_validate_request_rejects_long_service() {
+        let long = "a".repeat(MAX_SERVICE_NAME_LEN + 1);
+        let req = IpcRequest::StartService { service: long };
+        assert!(validate_request(&req).is_err(), "long service name rejected");
+    }
+
+    #[test]
+    fn test_validate_request_rejects_invalid_chars() {
+        let req = IpcRequest::StartService { service: "tor; rm -rf /".into() };
+        assert!(validate_request(&req).is_err(), "shell chars rejected");
+
+        let req = IpcRequest::StartService { service: "tor\n".into() };
+        assert!(validate_request(&req).is_err(), "newlines rejected");
+
+        let req = IpcRequest::StartService { service: "../tor".into() };
+        assert!(validate_request(&req).is_err(), "path traversal rejected");
+    }
+
+    #[test]
+    fn test_validate_request_accepts_valid_service() {
+        let req = IpcRequest::StartService { service: "tor".into() };
+        assert!(validate_request(&req).is_ok(), "valid service accepted");
+
+        let req = IpcRequest::StartService { service: "obfs4proxy".into() };
+        assert!(validate_request(&req).is_ok(), "obfs4proxy accepted");
+    }
+
+    #[test]
+    fn test_validate_panic_level_rejects_empty() {
+        let req = IpcRequest::SetPanicLevel { level: "".into() };
+        assert!(validate_request(&req).is_err(), "empty panic level rejected");
+    }
+
+    #[test]
+    fn test_validate_panic_level_rejects_long() {
+        let req = IpcRequest::SetPanicLevel { level: "super-duper-extra-nuclear-mode".into() };
+        assert!(validate_request(&req).is_err(), "long panic level rejected");
+    }
+
+    #[test]
+    fn test_service_name_from_str_maps_correctly() {
+        assert_eq!(service_name_from_str("tor"), Some(ServiceName::Tor));
+        assert_eq!(service_name_from_str("TOR"), Some(ServiceName::Tor));
+        assert_eq!(service_name_from_str("obfs4proxy"), Some(ServiceName::Obfs4Proxy));
+        assert_eq!(service_name_from_str("awg"), Some(ServiceName::AmneziaWG));
+        assert_eq!(service_name_from_str("syncthing"), Some(ServiceName::Syncthing));
+        assert_eq!(service_name_from_str("nonexistent"), None);
+    }
+
+    #[test]
+    fn test_ipc_response_serialization() {
+        let resp = IpcResponse::Error { message: "test error".into() };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("test error"), "error serialized");
     }
 }

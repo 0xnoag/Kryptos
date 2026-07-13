@@ -32,7 +32,7 @@ pub struct DnsConfig {
     pub cache_size: usize,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct TorConfig {
     pub binary_path: String,
     pub config_path: String,
@@ -40,6 +40,19 @@ pub struct TorConfig {
     pub control_port: u16,
     pub data_dir: String,
     pub bridges: Vec<String>,
+}
+
+impl std::fmt::Debug for TorConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TorConfig")
+            .field("binary_path", &self.binary_path)
+            .field("config_path", &self.config_path)
+            .field("socks_port", &self.socks_port)
+            .field("control_port", &self.control_port)
+            .field("data_dir", &self.data_dir)
+            .field("bridges", &format!("[{} entries]", self.bridges.len()))
+            .finish()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -232,5 +245,58 @@ impl Drop for ConfigManager {
     fn drop(&mut self) {
         use zeroize::Zeroize;
         self.key.zeroize();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tor_config_debug_hides_bridges() {
+        let config = TorConfig {
+            binary_path: "/usr/bin/tor".into(),
+            config_path: "/etc/tor/torrc".into(),
+            socks_port: 9050,
+            control_port: 9051,
+            data_dir: "/var/lib/tor".into(),
+            bridges: vec![
+                "obfs4 192.0.2.1:443 cert=deadbeef iat-mode=0".into(),
+                "obfs4 192.0.2.2:443 cert=cafebabe iat-mode=0".into(),
+            ],
+        };
+
+        let debug_str = format!("{:?}", config);
+        assert!(!debug_str.contains("deadbeef"), "Debug should not expose bridge cert");
+        assert!(!debug_str.contains("cafebabe"), "Debug should not expose bridge cert");
+        assert!(debug_str.contains("[2 entries]"), "Debug should show entry count");
+    }
+
+    #[test]
+    fn test_default_config_is_valid() {
+        let config = DaemonConfig::default();
+        assert_eq!(config.version, 1);
+        assert_eq!(config.dns.upstream, "1.1.1.1");
+        assert!(config.kill_switch_on_exit);
+    }
+
+    #[test]
+    fn test_argon2_params_use_strong_defaults() {
+        // The parameters used in ConfigManager::derive_key
+        let params = Argon2Params::new(65536, 3, 4, Some(32))
+            .expect("valid Argon2 params");
+        // Verify the params are reasonable (non-trivial)
+        assert!(params.m_cost() >= 65536, "memory cost should be at least 64 MiB, got {}", params.m_cost());
+        assert!(params.t_cost() >= 3, "time cost should be at least 3, got {}", params.t_cost());
+        assert!(params.p_cost() >= 1, "parallelism should be at least 1, got {}", params.p_cost());
+    }
+
+    #[test]
+    fn test_config_roundtrip() {
+        let config = DaemonConfig::default();
+        let serialized = toml::to_string_pretty(&config).unwrap();
+        let deserialized: DaemonConfig = toml::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.version, config.version);
+        assert_eq!(deserialized.dns.upstream, config.dns.upstream);
     }
 }
