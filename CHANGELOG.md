@@ -2,6 +2,24 @@
 
 ## fix/security-audit-pass-1 — 2026-07-13
 
+### Critical Concurrency Fixes
+
+#### `main.rs` — Eliminated outer lock deadlock (CRITICAL)
+- **Removed `Arc<RwLock<EndpointPrivacyDaemon>>` outer wrapper** that caused two deadlocks:
+  1. IPC accept loop held `daemon.read()` forever, preventing ctrl-c handler from acquiring `daemon.write()` (shutdown was unreachable, only SIGKILL worked).
+  2. Lock-ordering violation: IPC took `ProcessManager(R)` then `PanicEngine(R)`, but shutdown took `PanicEngine(W)` then `ProcessManager(W)` — textbook ABBA deadlock.
+- **Fix**: IPC and ctrl-c now receive separate `Arc<RwLock<ProcessManager>>` + `Arc<RwLock<PanicEngine>>` clones directly. Consistent lock ordering enforced: always `ProcessManager` first, then `PanicEngine`.
+- **Signal handling**: Replaced `ctrlc` crate + blocking `loop { sleep }` with `tokio::signal::ctrl_c()` + `tokio::select!`. No more `std::process::exit(0)` that bypassed Drop zeroization.
+- **Startup**: Calls `RouteManager::block_ipv6_leaks()` at daemon start (was only callable via IPC).
+- **Password**: Changed `--password` CLI flag to `-P`/`--password` with `hide = true`; primary path is `EPS_PASSWORD` env var only (CLI arg visible in `ps`).
+- **Graceful shutdown**: No longer uses `std::process::exit(0)` — drops through to `main()` return, running all Drop implementations (including key zeroization).
+
+#### `daemon/engine.rs` — TOCTOU race fixes (CRITICAL)
+- **`start()` TOCTOU fix**: Removed read-then-write pattern. Now uses write-lock directly to prevent `watch_process` from changing status between lock release and re-acquisition (which could cause a double-start: two instances of the same service running simultaneously).
+- **`watch_process` restart cancelled check**: After exponential backoff sleep, re-reads `proc.status`. If it changed from `Restarting` (e.g., `stop()` was called during the delay), aborts the restart instead of silently re-spawning.
+- **`stop()` race fix**: Now uses `tx.send(0).await` (blocking send) instead of `tx.try_send(0)` (non-blocking, could silently fail if channel was full). Shutdown signal is now reliably delivered.
+- **`status()` cleanup**: Removed `blocking_read()` in async context — was wasting blocking thread pool.
+
 ### Security & Correctness Fixes
 
 #### `firewall/panic.rs` — Major rewrite

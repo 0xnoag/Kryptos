@@ -11,7 +11,7 @@ The daemon must run as **root** because:
 ### Risks of Root Execution
 
 - Any compromise of the Rust daemon process gives an attacker full root capabilities.
-- The `EPS_PASSWORD` environment variable, containing the config decryption password, is visible in `/proc/<pid>/environ` to the root user and, if the kernel is unhardened, to any process with `CAP_SYS_PTRACE`.
+- The `EPS_PASSWORD` environment variable, containing the config decryption password, is visible in `/proc/<pid>/environ` to the root user and, if the kernel is unhardened, to any process with `CAP_SYS_PTRACE`. The `--password` CLI flag is hidden from `ps` output via clap's `hide = true`.
 - Child processes (tor, awg) inherit root. tor drops privileges by default (`User debian-tor`), but other binaries may not.
 
 ### Proposed Privilege Separation (not yet implemented)
@@ -32,10 +32,13 @@ This reduces the attack surface: a bug in JSON parsing or service management can
 | Issue | Status | Impact |
 |-------|--------|--------|
 | **DNS over plain UDP** | DNS is forwarded to upstream via unencrypted UDP (port 53). The `doh_url` config field exists but is unimplemented. | DNS queries are visible in plaintext to ISP/local network. This is a known leak. |
-| **IPv6 leak window** | IPv6 is disabled via sysctl on daemon start, but there is a race between boot and daemon launch. | Brief window where IPv6 traffic bypasses tunnels. Mitigated by systemd ordering (daemon starts early). |
+| **IPv6 leak window** | IPv6 is disabled via sysctl on daemon start, but there is a race between boot and daemon launch. Daemon now calls `block_ipv6_leaks()` at startup. | Brief window where IPv6 traffic bypasses tunnels. Mitigated by systemd ordering (daemon starts early). |
 | **No nftables rule persistence across reboot** | nftables rules from the kill switch survive daemon crash (they're in-kernel) but NOT a system reboot. | After reboot, there is a window with no firewall protection until the daemon starts and applies rules. Mitigated by systemd `ExecStartPre` to restore rules. |
 | **Plain-text stdout/stderr logs** | Child process output is captured and logged via `tracing`. These logs may contain sensitive information (URLs, IPs, error details). | Logs should be treated as sensitive. Configure log rotation and restrict access (`chmod 600`). |
 | **MAC spoofing races** | `ip link set down` while traffic is in flight causes transient connection drops. No synchronization with active sockets. | Expected behavior: brief network interruption during MAC change. Long-running TCP connections may reset. |
+| **Hard mode DNS port 53/853 restriction** | Outbound DNS exceptions in Hard kill-switch mode are now restricted to the configured upstream resolver IP (instead of allowing ANY IP on those ports). | Prevents apps with hardcoded DNS resolvers from bypassing the local DNS proxy. |
+| **Interface name validation** | `add_allowed_interface()` now validates interface name characters (alphanumeric, hyphens, underscores, plus). | Prevents nftables rule-injection through interface names. |
+| **IPC deadlock eliminated** | Outer `Arc<RwLock<>>` removed; lock ordering is now consistent. Shutdown is reachable via ctrl-c (was permanently blocked by IPC accept loop). | Daemon can now gracefully shut down and zeroize encryption keys on exit. |
 | **Classifier is informational only** | The `TrafficClassifier` does not enforce routing decisions — it only annotates packet types. Actual routing enforcement depends on nftables + routing table configuration. | No enforcement gap if nftables rules are correctly applied. |
 
 ## How to Report a Vulnerability
