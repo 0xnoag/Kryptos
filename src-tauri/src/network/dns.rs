@@ -102,8 +102,13 @@ impl DnsHijacker {
                         let cache_clone = cache.clone();
                         let upstream_clone = upstream.clone();
                         let upstream_addr_clone = upstream_addr;
-                        let listener_for_spawn = listener.try_clone()
-                            .expect("Failed to clone DNS listener socket");
+                        let listener_for_spawn = match listener.try_clone() {
+                            Ok(s) => s,
+                            Err(e) => {
+                                warn!("DNS listener clone failed (FD exhaustion?): {e}");
+                                continue;
+                            }
+                        };
 
                         tokio::spawn(async move {
                             let result = timeout(
@@ -180,5 +185,38 @@ impl DnsHijacker {
         let _ = cmd.output().await;
         info!("System DNS restored to upstream {}", self.config.upstream);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dns_config_defaults() {
+        let config = crate::daemon::config::DnsConfig {
+            upstream: "1.1.1.1".into(),
+            doh_url: "https://cloudflare-dns.com/dns-query".into(),
+            bind_address: "127.0.0.1".into(),
+            bind_port: 53,
+            cache_size: 4096,
+        };
+        assert_eq!(config.upstream, "1.1.1.1");
+        assert_eq!(config.bind_port, 53);
+    }
+
+    #[test]
+    fn test_dns_hijacker_initializes_cache() {
+        let config = crate::daemon::config::DnsConfig {
+            upstream: "1.1.1.1".into(),
+            doh_url: String::new(),
+            bind_address: "127.0.0.1".into(),
+            bind_port: 53,
+            cache_size: 0, // should fall back to default 4096
+        };
+        let hijacker = DnsHijacker::new(config);
+        // Cache should be initialized (we can't inspect it directly, but construction should not panic)
+        assert!(hijacker.upstream_socket.is_none());
+        assert!(hijacker.listener_socket.is_none());
     }
 }

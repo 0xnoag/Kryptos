@@ -34,19 +34,19 @@ impl RouteManager {
         let mark = 0x0f0fu32;
         let table_id: u16 = 100;
 
-        let _ = run_cmd(
+        run_cmd(
             Command::new("ip")
                 .args(["rule", "add", &format!("fwmark {mark}"), "table", &table_id.to_string()]),
             "ip rule add for Tor fwmark",
-        ).await;
+        ).await?;
 
-        let _ = run_cmd(
+        run_cmd(
             Command::new("ip")
                 .args(["route", "add", "local", "0.0.0.0/0", "dev", "lo", "table", &table_id.to_string()]),
             "ip route add for Tor table",
-        ).await;
+        ).await?;
 
-        let _ = run_cmd(
+        run_cmd(
             Command::new("iptables")
                 .args([
                     "-t", "mangle",
@@ -59,9 +59,9 @@ impl RouteManager {
                     "--set-mark", &mark.to_string(),
                 ]),
             "iptables mark Tor traffic",
-        ).await;
+        ).await?;
 
-        let _ = run_cmd(
+        run_cmd(
             Command::new("iptables")
                 .args([
                     "-t", "nat",
@@ -72,7 +72,7 @@ impl RouteManager {
                     "--to-ports", &tor_trans_port.to_string(),
                 ]),
             "iptables redirect Tor marked traffic",
-        ).await;
+        ).await?;
 
         info!("Tor transparent proxy configured (fwmark {mark}, table {table_id}, port {tor_trans_port})");
         Ok(())
@@ -175,10 +175,18 @@ impl RouteManager {
             ("ipv6.conf.default.disable_ipv6", "1"),
             ("ipv6.conf.lo.disable_ipv6", "0"),
         ];
+        let mut errors = Vec::new();
         for (key, val) in &settings {
-            let _ = Self::sysctl_set(key, val).await;
+            if let Err(e) = Self::sysctl_set(key, val).await {
+                warn!("Failed to set {key}={val}: {e}");
+                errors.push(format!("{key}={val}"));
+            }
         }
-        info!("IPv6 disabled on all interfaces except lo (IPv6 leak prevention)");
+        if !errors.is_empty() {
+            warn!("IPv6 leak blocking partially applied — some sysctls failed: {}", errors.join(", "));
+        } else {
+            info!("IPv6 disabled on all interfaces except lo (IPv6 leak prevention)");
+        }
         Ok(())
     }
 

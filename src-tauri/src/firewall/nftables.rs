@@ -94,6 +94,7 @@ pub struct NftablesManager {
     binary_path: String,
     active: bool,
     allowed_interfaces: HashSet<String>,
+    dns_upstream: Option<String>,
 }
 
 impl NftablesManager {
@@ -102,6 +103,7 @@ impl NftablesManager {
             binary_path: NFT_BINARY.to_string(),
             active: false,
             allowed_interfaces: HashSet::new(),
+            dns_upstream: None,
         }
     }
 
@@ -111,11 +113,20 @@ impl NftablesManager {
     }
 
     pub fn add_allowed_interface(&mut self, iface: &str) {
+        // Validate interface name: only alphanumeric, hyphens, underscores, plus
+        if !iface.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '+') {
+            warn!("Ignoring invalid interface name: {iface}");
+            return;
+        }
         self.allowed_interfaces.insert(iface.to_string());
     }
 
     pub fn remove_allowed_interface(&mut self, iface: &str) {
         self.allowed_interfaces.remove(iface);
+    }
+
+    pub fn set_dns_upstream(&mut self, upstream: &str) {
+        self.dns_upstream = Some(upstream.to_string());
     }
 
     pub fn is_active(&self) -> bool {
@@ -313,9 +324,13 @@ table inet endpoint_privacy {{
     }
 
     fn build_hard_rules(&self) -> String {
-        if self.allowed_interfaces.is_empty() {
+        let has_custom = !self.allowed_interfaces.is_empty();
+        let has_upstream = self.dns_upstream.is_some();
+
+        if !has_custom && !has_upstream {
             return NFT_KILL_SWITCH.to_string();
         }
+
         let mut iface_list: Vec<String> = self
             .allowed_interfaces
             .iter()
@@ -327,6 +342,19 @@ table inet endpoint_privacy {{
         iface_list.push("\"obfs+\"".to_string());
         let ifaces = iface_list.join(", ");
 
+        // Only allow outbound DNS to the configured upstream resolver
+        let dns_rule = match &self.dns_upstream {
+            Some(upstream) => format!(
+                r#"        ip daddr {} udp dport {{ 53, 853 }} accept
+        ip daddr {} tcp dport {{ 53, 853 }} accept"#,
+                upstream, upstream
+            ),
+            None => format!(
+                r#"        udp dport {{ 53, 853 }} accept
+        tcp dport {{ 53, 853 }} accept"#
+            ),
+        };
+
         format!(
             r#"
 table inet endpoint_privacy {{
@@ -335,6 +363,8 @@ table inet endpoint_privacy {{
         iif "lo" accept
         ct state established,related accept
         iifname {{ {ifaces} }} accept
+        ip protocol icmp accept
+        ip6 protocol icmpv6 accept
         reject with icmpx type admin-prohibited
     }}
     chain privacy_output {{
@@ -342,10 +372,12 @@ table inet endpoint_privacy {{
         oif "lo" accept
         ct state established,related accept
         oifname {{ {ifaces} }} accept
+{dns_rule}
         reject with icmpx type admin-prohibited
     }}
     chain privacy_forward {{
         type filter hook forward priority 0; policy drop;
+        iifname {{ {ifaces} }} oifname != "lo" accept
         reject with icmpx type admin-prohibited
     }}
 }}
@@ -364,5 +396,69 @@ pub enum KillSwitchStatus {
 impl Default for NftablesManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_hard_rules_includes_upstream_restriction() {
+        let mut nft = NftablesManager::new();
+        nft.set_dns_upstream("1.1.1.1");
+        let rules = nft.build_hard_rules();
+        assert!(rules.contains("ip daddr 1.1.1.1 udp dport { 53, 853 } accept"), "rules should restrict DNS to upstream IP");
+        assert!(rules.contains("ip daddr 1.1.1.1 tcp dport { 53, 853 } accept"), "rules should restrict DoT to upstream IP");
+    }
+
+    #[test]
+    fn test_build_hard_rules_fallback_no_upstream() {
+        let nft = NftablesManager::new();
+        let rules = nft.build_hard_rules();
+        // Without upstream set, should use the static NFT_KILL_SWITCH which has unrestricted DNS
+        assert!(rules.contains("udp dport { 53, 853 } accept"));
+        assert!(!rules.contains("ip daddr"), "no IP restriction when upstream is not configured");
+    }
+
+    #[test]
+    fn test_allowed_interface_validation() {
+        let mut nft = NftablesManager::new();
+        nft.add_allowed_interface("eth0");
+        assert!(nft.allowed_interfaces.contains("eth0"), "valid interface name accepted");
+
+        nft.add_allowed_interface("wg+");
+        assert!(nft.allowed_interfaces.contains("wg+"), "interface with plus accepted");
+
+        nft.add_allowed_interface("eth0.1");
+        // Period is not in the whitelist, should be rejected
+        assert!(!nft.allowed_interfaces.contains("eth0.1"), "invalid interface name rejected");
+    }
+
+    #[test]
+    fn test_build_hard_rules_with_allowed_interfaces() {
+        let mut nft = NftablesManager::new();
+        nft.add_allowed_interface("eth0");
+        nft.set_dns_upstream("1.0.0.1");
+        let rules = nft.build_hard_rules();
+        assert!(rules.contains("eth0"), "allowed interface should appear in rules");
+        assert!(rules.contains("1.0.0.1"), "dns upstream should appear in rules");
+    }
+
+    #[test]
+    fn test_build_soft_rules_no_dns_exception() {
+        let nft = NftablesManager::new();
+        let rules = nft.build_soft_rules();
+        // Soft mode should NOT allow outbound DNS ports
+        assert!(!rules.contains("dport { 53, 853 }"), "soft mode should not allow outbound DNS ports");
+    }
+
+    #[test]
+    fn test_nuclear_rules_loopback_only() {
+        assert!(NFT_NUCLEAR.contains("iif \"lo\" accept"), "nuclear allows lo input");
+        assert!(NFT_NUCLEAR.contains("oif \"lo\" accept"), "nuclear allows lo output");
+        // No tunnel or established exceptions in nuclear mode
+        assert!(!NFT_NUCLEAR.contains("tun+"), "no tunnel in nuclear");
+        assert!(!NFT_NUCLEAR.contains("established"), "no established in nuclear");
     }
 }
