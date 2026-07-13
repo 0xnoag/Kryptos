@@ -1,16 +1,30 @@
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio::sync::RwLock;
-use tracing::{error, info, warn};
+use tokio::time::timeout;
+use tracing::{error, info, trace, warn};
 
 use crate::daemon::config::DnsConfig;
 
-const DNS_HEADER_SIZE: usize = 12;
 const MAX_DNS_PACKET: usize = 512;
+const DNS_TIMEOUT_SECS: u64 = 5;
 
+/// Local plain-UDP DNS forwarder.
+///
+/// **SECURITY NOTICE**: This forwards DNS queries to the upstream resolver
+/// over *unencrypted UDP* (port 53). This means DNS queries are visible
+/// to the local network and ISP in plaintext, even though they are routed
+/// through the local DNS proxy. The `doh_url` config field is reserved for
+/// future DoH (DNS-over-HTTPS) implementation and is currently unused.
+///
+/// To prevent DNS leaks when the kill switch is active:
+/// - The nftables rules allow outbound DNS (ports 53, 853) so the proxy can reach
+///   the upstream resolver even during Hard kill-switch mode.
+/// - All local applications should be pointed to the local bind address
+///   (127.0.0.1:53) via systemd-resolved or resolvconf integration.
 pub struct DnsHijacker {
     config: DnsConfig,
     upstream_socket: Option<UdpSocket>,
@@ -20,9 +34,15 @@ pub struct DnsHijacker {
 
 impl DnsHijacker {
     pub fn new(config: DnsConfig) -> Self {
+        let cache_size = if config.cache_size == 0 {
+            4096
+        } else {
+            config.cache_size
+        };
         Self {
             cache: Arc::new(RwLock::new(lru::LruCache::new(
-                std::num::NonZeroUsize::new(config.cache_size).unwrap_or(std::num::NonZeroUsize::new(4096).unwrap()),
+                std::num::NonZeroUsize::new(cache_size)
+                    .unwrap_or_else(|| std::num::NonZeroUsize::new(4096).unwrap()),
             ))),
             config,
             upstream_socket: None,
@@ -35,13 +55,13 @@ impl DnsHijacker {
             .parse()
             .context("Invalid DNS bind address")?;
 
-        let listener = UdpSocket::bind(bind_addr).await?;
-        info!("DNS hijacker listening on {}", bind_addr);
+        let listener = UdpSocket::bind(bind_addr)
+            .await
+            .with_context(|| format!("Failed to bind DNS listener to {bind_addr} (try running as root)"))?;
+
+        info!("DNS forwarder listening on {} (plain UDP to {})", bind_addr, self.config.upstream);
 
         let upstream = UdpSocket::bind("0.0.0.0:0").await?;
-        let upstream_addr: SocketAddr = format!("{}:53", self.config.upstream)
-            .parse()
-            .context("Invalid upstream DNS address")?;
 
         self.listener_socket = Some(listener);
         self.upstream_socket = Some(upstream);
@@ -53,11 +73,11 @@ impl DnsHijacker {
         let listener = self
             .listener_socket
             .as_ref()
-            .context("DNS hijacker not started")?;
+            .context("DNS forwarder not started")?;
         let upstream = self
             .upstream_socket
             .as_ref()
-            .context("DNS hijacker not started")?;
+            .context("DNS forwarder not started")?;
         let upstream_addr: SocketAddr = format!("{}:53", self.config.upstream)
             .parse()
             .context("Invalid upstream DNS address")?;
@@ -69,40 +89,58 @@ impl DnsHijacker {
             match listener.recv_from(&mut buf).await {
                 Ok((n, src)) => {
                     let query = buf[..n].to_vec();
+
                     let cache_hit = {
                         let mut cache = cache.write().await;
                         cache.get(&query).cloned()
                     };
 
-                    let cache_clone = cache.clone();
-                    let upstream_clone = upstream.clone();
-                    let upstream_addr_clone = upstream_addr;
-
                     if let Some(cached_response) = cache_hit {
                         let _ = listener.send_to(&cached_response, src).await;
-                        info!("DNS cache hit for {}", src);
+                        trace!("DNS cache hit for {}", src);
                     } else {
+                        let cache_clone = cache.clone();
+                        let upstream_clone = upstream.clone();
+                        let upstream_addr_clone = upstream_addr;
+                        let listener_for_spawn = listener.try_clone()
+                            .expect("Failed to clone DNS listener socket");
+
                         tokio::spawn(async move {
-                            match upstream_clone
-                                .send_to(&query, upstream_addr_clone)
-                                .await
-                            {
-                                Ok(_) => {
+                            let result = timeout(
+                                Duration::from_secs(DNS_TIMEOUT_SECS),
+                                upstream_clone.send_to(&query, upstream_addr_clone),
+                            )
+                            .await;
+
+                            match result {
+                                Ok(Ok(_)) => {
                                     let mut resp = vec![0u8; MAX_DNS_PACKET];
-                                    match upstream_clone.recv_from(&mut resp).await {
-                                        Ok((rn, _)) => {
+                                    let recv_result = timeout(
+                                        Duration::from_secs(DNS_TIMEOUT_SECS),
+                                        upstream_clone.recv_from(&mut resp),
+                                    )
+                                    .await;
+
+                                    match recv_result {
+                                        Ok(Ok((rn, _))) => {
                                             let response = resp[..rn].to_vec();
                                             let mut cache = cache_clone.write().await;
                                             cache.put(query, response.clone());
-                                            let _ = listener.send_to(&response, src).await;
+                                            let _ = listener_for_spawn.send_to(&response, src).await;
                                         }
-                                        Err(e) => {
-                                            error!("DNS upstream recv error: {e}");
+                                        Ok(Err(e)) => {
+                                            warn!("DNS upstream recv error: {e}");
+                                        }
+                                        Err(_) => {
+                                            warn!("DNS upstream recv timed out after {DNS_TIMEOUT_SECS}s");
                                         }
                                     }
                                 }
-                                Err(e) => {
-                                    error!("DNS upstream send error: {e}");
+                                Ok(Err(e)) => {
+                                    warn!("DNS upstream send error: {e}");
+                                }
+                                Err(_) => {
+                                    warn!("DNS upstream send timed out after {DNS_TIMEOUT_SECS}s");
                                 }
                             }
                         });
@@ -121,7 +159,7 @@ impl DnsHijacker {
         cmd.args(["dns", "lo", &address]);
         let output = cmd.output().await?;
         if output.status.success() {
-            info!("System DNS set to local hijacker at {}", address);
+            info!("System DNS set to local forwarder at {}", address);
         } else {
             warn!(
                 "Failed to set system DNS: {}",
