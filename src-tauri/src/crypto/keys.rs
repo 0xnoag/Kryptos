@@ -79,30 +79,38 @@ impl KeyDerivation {
 mod tests {
     use super::*;
 
-    // Test vector salt — deterministic value required for reproducible assertions.
-    // Not used in production; production salts are generated via OsRng.
+    // Test vector values: hardcoded deterministic inputs required for
+    // reproducible assertions. NOT used in production — production salts
+    // use OsRng, and passwords come from EPS_PASSWORD env or file.
     const TEST_SALT: &[u8; 32] = b"01234567890123456789012345678901";
+    const TEST_KEY: [u8; 32] = [0x42u8; 32];
+    const TEST_KEY_ALT: [u8; 32] = [0x24u8; 32];
+
+    /// Returns a deterministic test key. When no salt is given, uses TEST_SALT.
+    fn test_key(salt: Option<&[u8]>) -> [u8; 32] {
+        KeyDerivation::derive_key("test-password", salt.unwrap_or(TEST_SALT)).unwrap()
+    }
 
     #[test]
     fn test_derive_key_deterministic() {
-        let key1 = KeyDerivation::derive_key("test-password", TEST_SALT).unwrap();
-        let key2 = KeyDerivation::derive_key("test-password", TEST_SALT).unwrap();
-        assert_eq!(key1, key2, "same password + salt should produce same key");
+        let key = test_key(None);
+        // Call derive_key directly to verify determinism independent of test_key
+        let key_again = KeyDerivation::derive_key("test-password", TEST_SALT).unwrap();
+        assert_eq!(key, key_again, "same password + salt should produce same key");
     }
 
     #[test]
     fn test_derive_key_different_salts() {
         let salt1 = KeyDerivation::generate_salt();
         let salt2 = KeyDerivation::generate_salt();
-        let key1 = KeyDerivation::derive_key("test-password", &salt1).unwrap();
-        let key2 = KeyDerivation::derive_key("test-password", &salt2).unwrap();
+        let key1 = test_key(Some(&salt1));
+        let key2 = test_key(Some(&salt2));
         assert_ne!(key1, key2, "different salts should produce different keys");
     }
 
     #[test]
     fn test_derive_key_output_length() {
-        let salt = KeyDerivation::generate_salt();
-        let key = KeyDerivation::derive_key("test-password", &salt).unwrap();
+        let key = test_key(None);
         assert_eq!(key.len(), 32, "derived key should be 32 bytes (256 bits)");
     }
 
@@ -121,9 +129,8 @@ mod tests {
 
     #[test]
     fn test_encrypt_decrypt_roundtrip() {
-        let key = [0x42u8; 32];
         let plaintext = b"Hello, Kryptos! This is sensitive config data.";
-        let encrypted = KeyDerivation::encrypt(plaintext, &key).unwrap();
+        let encrypted = KeyDerivation::encrypt(plaintext, &TEST_KEY).unwrap();
         assert_ne!(
             encrypted, plaintext,
             "encrypted data should differ from plaintext"
@@ -133,28 +140,23 @@ mod tests {
             "encrypted should include nonce + tag"
         );
 
-        let decrypted = KeyDerivation::decrypt(&encrypted, &key).unwrap();
+        let decrypted = KeyDerivation::decrypt(&encrypted, &TEST_KEY).unwrap();
         assert_eq!(decrypted, plaintext, "decrypted should match original");
     }
 
     #[test]
     fn test_decrypt_wrong_key_fails() {
-        let key1 = [0x42u8; 32];
-        let key2 = [0x24u8; 32];
-        let plaintext = b"test data";
-        let encrypted = KeyDerivation::encrypt(plaintext, &key1).unwrap();
+        let encrypted = KeyDerivation::encrypt(b"test data", &TEST_KEY).unwrap();
         assert!(
-            KeyDerivation::decrypt(&encrypted, &key2).is_err(),
+            KeyDerivation::decrypt(&encrypted, &TEST_KEY_ALT).is_err(),
             "wrong key should fail decryption"
         );
     }
 
     #[test]
     fn test_encrypt_unique_nonce_per_call() {
-        let key = [0x42u8; 32];
-        let plaintext = b"same data";
-        let enc1 = KeyDerivation::encrypt(plaintext, &key).unwrap();
-        let enc2 = KeyDerivation::encrypt(plaintext, &key).unwrap();
+        let enc1 = KeyDerivation::encrypt(b"same data", &TEST_KEY).unwrap();
+        let enc2 = KeyDerivation::encrypt(b"same data", &TEST_KEY).unwrap();
         assert_ne!(
             enc1[..12],
             enc2[..12],
@@ -174,10 +176,7 @@ mod tests {
 
     #[test]
     fn test_argon2_uses_strong_params() {
-        let salt = KeyDerivation::generate_salt();
-        let result = KeyDerivation::derive_key("test-password", &salt);
-        assert!(result.is_ok(), "Argon2 key derivation should succeed");
-        let key = result.unwrap();
-        assert_eq!(key.len(), 32);
+        let result = test_key(None);
+        assert_eq!(result.len(), 32);
     }
 }
