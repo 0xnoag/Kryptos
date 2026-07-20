@@ -182,14 +182,38 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 sudo apt install -y nodejs npm
 ```
 
-### Build from Source
+### Quick Install (Recommended)
+
+Clone and install everything — daemon, systemd service, desktop icon, and CLI — in one step:
 
 ```bash
-# Clone
 git clone https://github.com/0xnoag/Kryptos.git
 cd Kryptos
+sudo make install
+```
 
-# Build the daemon (no GTK/WebKit dependencies required)
+This runs `install/install.sh` which:
+1. Builds the Rust daemon (release mode)
+2. Builds the frontend (as `kali` user)
+3. Copies daemon to `/usr/local/lib/kryptos/endpoint-privacy-suite`
+4. Installs CLI to `/usr/local/bin/kryptos`
+5. Installs systemd service (`kryptos.service`)
+6. Generates a random 48-character password and saves it to `/etc/endpoint-privacy/env`
+7. Installs desktop entry for all users
+8. Enables and starts the systemd service
+
+To rebuild from scratch after a pull:
+
+```bash
+sudo make fresh
+```
+
+(Stops daemon, uninstalls, cleans build artifacts, rebuilds, installs, restarts.)
+
+### Manual Build
+
+```bash
+# Build the daemon
 cd src-tauri
 cargo build --release
 cd ..
@@ -199,17 +223,43 @@ npm install
 npm run build
 ```
 
-### Run
+---
 
-```bash
-# Start daemon (root required for nftables + routing)
-sudo EPS_PASSWORD="your-strong-password" ./src-tauri/target/release/endpoint-privacy-suite
+## Usage
 
-# Open web UI in browser
-# http://localhost:8080
-```
+### CLI (`kryptos`)
 
-### CLI Flags
+After installation, control everything with the `kryptos` command (no sudo needed for most commands):
+
+| Command | Description |
+|---------|-------------|
+| `kryptos status` | Show daemon + all service status |
+| `kryptos start` | Start the daemon (systemd) |
+| `kryptos stop` | Stop the daemon |
+| `kryptos restart` | Restart the daemon |
+| `kryptos service start <Service>` | Start a service |
+| `kryptos service stop <Service>` | Stop a service |
+| `kryptos panic <Level>` | Set kill switch level |
+| `kryptos ui` | Open web UI in browser |
+| `kryptos explain` | Beginner-friendly explanation of all features |
+
+Services: `Tor`, `AmneziaWG`, `Syncthing`, `Obfs4Proxy`
+
+Panic levels: `Off` | `Soft` | `Hard` | `Nuclear`
+
+### Web UI
+
+The UI provides:
+- Real-time service status with auto-refresh (2s polling)
+- Visual nftables ruleset display
+- Split routing classifier overview
+- Configuration viewer
+
+Open it with: `kryptos ui`
+
+> **Note**: The web UI is **read-only**. All state-changing operations (start/stop services, panic levels) must be done via the `kryptos` CLI.
+
+### Daemon Flags (low-level)
 
 ```bash
 endpoint-privacy-suite --help
@@ -225,15 +275,20 @@ Options:
   -h, --help                   Print help
 ```
 
-### Web UI
+### Manual IPC (advanced)
 
-The UI provides:
-- Real-time service status with auto-refresh (2s polling)
-- Visual nftables ruleset display
-- Split routing classifier overview
-- Configuration viewer
+All mutations go through the Unix socket directly:
 
-> **Note**: Service start/stop/restart and panic level changes are **not available** in the web UI. These operations require the CLI tool connecting to the Unix socket at `/run/endpoint-privacy/ipc.sock`.
+```bash
+# Start a service
+echo '{"type":"StartService","payload":"Tor"}' | sudo nc -U /run/endpoint-privacy/ipc.sock
+
+# Set kill switch
+echo '{"type":"SetPanic","payload":"Nuclear"}' | sudo nc -U /run/endpoint-privacy/ipc.sock
+
+# Get full status
+echo '{"type":"GetStatus"}' | sudo nc -U /run/endpoint-privacy/ipc.sock
+```
 
 ---
 
