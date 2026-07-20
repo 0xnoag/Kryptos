@@ -252,7 +252,7 @@ impl ProcessManager {
     #[allow(clippy::too_many_arguments)]
     async fn watch_process(
         name: ServiceName,
-        mut child: Child,
+        child: Child,
         status_tx: Option<watch::Sender<ServiceStatus>>,
         mut shutdown_rx: mpsc::Receiver<u8>,
         proc_arc: Arc<RwLock<ManagedProcess>>,
@@ -264,7 +264,7 @@ impl ProcessManager {
         let mut current_child: Option<Child> = Some(child);
 
         loop {
-            let child = match current_child.take() {
+            let mut child = match current_child.take() {
                 Some(c) => c,
                 None => break,
             };
@@ -375,7 +375,7 @@ impl ProcessManager {
                                 let status =
                                     ServiceStatus::Failed(format!("Integrity check failed: {e}"));
                                 if let Some(ref tx) = status_tx {
-                                    let _ = tx.send(status);
+                                    let _ = tx.send(status.clone());
                                 }
                                 let mut proc = proc_arc.write().await;
                                 proc.status = status;
@@ -399,7 +399,7 @@ impl ProcessManager {
                                 error!("Failed to restart {}: {e}", name.display_name());
                                 let status = ServiceStatus::Failed(format!("Restart failed: {e}"));
                                 if let Some(ref tx) = status_tx {
-                                    let _ = tx.send(status);
+                                    let _ = tx.send(status.clone());
                                 }
                                 let mut proc = proc_arc.write().await;
                                 proc.status = status;
@@ -411,7 +411,7 @@ impl ProcessManager {
                             "Exceeded max restarts ({max_restarts}), last exit: {exit_code}"
                         ));
                         if let Some(ref tx) = status_tx {
-                            let _ = tx.send(status);
+                            let _ = tx.send(status.clone());
                         }
                         let mut proc = proc_arc.write().await;
                         proc.status = status;
@@ -422,7 +422,7 @@ impl ProcessManager {
                     error!("{} wait error: {}", name.display_name(), e);
                     let status = ServiceStatus::Failed(format!("Wait error: {e}"));
                     if let Some(ref tx) = status_tx {
-                        let _ = tx.send(status);
+                        let _ = tx.send(status.clone());
                     }
                     let mut proc = proc_arc.write().await;
                     proc.status = status;
@@ -476,13 +476,9 @@ impl ProcessManager {
         self.services
             .get(&name)
             .map(|p| {
-                let now = std::time::Instant::now();
-                // Write-lock not needed since read-only access is sufficient
-                // Use try_read to avoid deadlock if called while holding write-lock
-                // (defensive — all callers should use all_status() instead)
                 match p.try_read() {
-                    Ok(guard) => guard.status,
-                    Err(_) => ServiceStatus::Stopped,
+                Ok(guard) => guard.status.clone(),
+                Err(_) => ServiceStatus::Stopped,
                 }
             })
             .unwrap_or(ServiceStatus::Stopped)
@@ -495,7 +491,7 @@ impl ProcessManager {
             let proc = proc_arc.read().await;
             infos.push(ServiceInfo {
                 name: proc.name,
-                status: proc.status,
+                status: proc.status.clone(),
                 uptime_secs: proc
                     .started_at
                     .map(|t| now.duration_since(t).as_secs())

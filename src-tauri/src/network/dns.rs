@@ -107,133 +107,119 @@ impl DnsHijacker {
             .listener_socket
             .as_ref()
             .context("DNS forwarder not started")?;
-        let upstream = self
-            .upstream_socket
-            .as_ref()
-            .context("DNS forwarder not started")?;
         let upstream_addr: SocketAddr = format!("{}:53", self.config.upstream)
             .parse()
             .context("Invalid upstream DNS address")?;
         let cache = self.cache.clone();
+        let doh_url = self.config.doh_url.clone();
+        let use_doh = !doh_url.is_empty();
+
+        let (response_tx, mut response_rx) =
+            tokio::sync::mpsc::channel::<(Vec<u8>, SocketAddr)>(256);
 
         let mut buf = vec![0u8; MAX_DNS_PACKET];
 
         loop {
-            match listener.recv_from(&mut buf).await {
-                Ok((n, src)) => {
-                    let query = buf[..n].to_vec();
+            tokio::select! {
+                Some((data, addr)) = response_rx.recv() => {
+                    if let Err(e) = listener.send_to(&data, addr).await {
+                        trace!("Failed to send DNS response to {}: {e}", addr);
+                    }
+                }
+                result = listener.recv_from(&mut buf) => {
+                    match result {
+                        Ok((n, src)) => {
+                            let query = buf[..n].to_vec();
 
-                    let cache_hit = {
-                        let mut cache = cache.write().await;
-                        cache.get(&query).cloned()
-                    };
+                            let cache_hit = {
+                                let mut cache = cache.write().await;
+                                cache.get(&query).cloned()
+                            };
 
-                    if let Some(cached_response) = cache_hit {
-                        if let Err(e) = listener.send_to(&cached_response, src).await {
-                            trace!("Failed to send cached DNS response to {}: {e}", src);
-                        }
-                        trace!("DNS cache hit for {}", src);
-                    } else {
-                        let cache_clone = cache.clone();
-                        let upstream_clone = match upstream.try_clone() {
-                            Ok(s) => s,
-                            Err(e) => {
-                                warn!("DNS upstream clone failed (FD exhaustion?): {e}");
-                                continue;
-                            }
-                        };
-                        let upstream_addr_clone = upstream_addr;
-                        let listener_for_spawn = match listener.try_clone() {
-                            Ok(s) => s,
-                            Err(e) => {
-                                warn!("DNS listener clone failed (FD exhaustion?): {e}");
-                                continue;
-                            }
-                        };
-                        let doh_url = self.config.doh_url.clone();
-                        let use_doh = !doh_url.is_empty();
-
-                        tokio::spawn(async move {
-                            let response = if use_doh {
-                                match timeout(
-                                    Duration::from_secs(DNS_TIMEOUT_SECS),
-                                    tokio::task::spawn_blocking({
-                                        let doh_url = doh_url.clone();
-                                        let query = query.clone();
-                                        move || dns_over_https(&doh_url, &query)
-                                    }),
-                                )
-                                .await
-                                {
-                                    Ok(Ok(Ok(data))) => Some(data),
-                                    Ok(Ok(Err(e))) => {
-                                        warn!("DoH request failed: {e}");
-                                        None
-                                    }
-                                    Ok(Err(_)) => {
-                                        warn!("DoH blocking task panicked");
-                                        None
-                                    }
-                                    Err(_) => {
-                                        warn!("DoH request timed out after {DNS_TIMEOUT_SECS}s");
-                                        None
-                                    }
+                            if let Some(cached_response) = cache_hit {
+                                if let Err(e) = listener.send_to(&cached_response, src).await {
+                                    trace!("Failed to send cached DNS response to {}: {e}", src);
                                 }
+                                trace!("DNS cache hit for {}", src);
                             } else {
-                                // Fallback to plain UDP
-                                match timeout(
-                                    Duration::from_secs(DNS_TIMEOUT_SECS),
-                                    upstream_clone.send_to(&query, upstream_addr_clone),
-                                )
-                                .await
-                                {
-                                    Ok(Ok(_)) => {
-                                        let mut resp = vec![0u8; MAX_DNS_PACKET];
+                                let cache_clone = cache.clone();
+                                let upstream_addr_clone = upstream_addr;
+                                let tx = response_tx.clone();
+                                let doh_url = doh_url.clone();
+
+                                tokio::spawn(async move {
+                                    let response = if use_doh {
                                         match timeout(
                                             Duration::from_secs(DNS_TIMEOUT_SECS),
-                                            upstream_clone.recv_from(&mut resp),
+                                            tokio::task::spawn_blocking({
+                                                let doh_url = doh_url.clone();
+                                                let query = query.clone();
+                                                move || dns_over_https(&doh_url, &query)
+                                            }),
                                         )
                                         .await
                                         {
-                                            Ok(Ok((rn, _))) => Some(resp[..rn].to_vec()),
-                                            Ok(Err(e)) => {
-                                                warn!("DNS upstream recv error: {e}");
+                                            Ok(Ok(Ok(data))) => Some(data),
+                                            Ok(Ok(Err(e))) => {
+                                                warn!("DoH request failed: {e}");
+                                                None
+                                            }
+                                            Ok(Err(_)) => {
+                                                warn!("DoH blocking task panicked");
                                                 None
                                             }
                                             Err(_) => {
-                                                warn!("DNS upstream recv timed out after {DNS_TIMEOUT_SECS}s");
+                                                warn!("DoH request timed out after {DNS_TIMEOUT_SECS}s");
                                                 None
                                             }
                                         }
-                                    }
-                                    Ok(Err(e)) => {
-                                        warn!("DNS upstream send error: {e}");
-                                        None
-                                    }
-                                    Err(_) => {
-                                        warn!(
-                                            "DNS upstream send timed out after {DNS_TIMEOUT_SECS}s"
-                                        );
-                                        None
-                                    }
-                                }
-                            };
+                                    } else {
+                                        match Self::resolve_upstream(
+                                            &query,
+                                            upstream_addr_clone,
+                                        )
+                                        .await
+                                        {
+                                            Ok(data) => Some(data),
+                                            Err(e) => {
+                                                warn!("DNS upstream resolve failed: {e}");
+                                                None
+                                            }
+                                        }
+                                    };
 
-                            if let Some(data) = response {
-                                let mut cache = cache_clone.write().await;
-                                cache.put(query, data.clone());
-                                if let Err(e) = listener_for_spawn.send_to(&data, src).await {
-                                    trace!("Failed to send DNS response to {}: {e}", src);
-                                }
+                                    if let Some(data) = response {
+                                        let mut cache = cache_clone.write().await;
+                                        cache.put(query, data.clone());
+                                        if let Err(e) = tx.send((data, src)).await {
+                                            trace!("DNS response channel send error: {e}");
+                                        }
+                                    }
+                                });
                             }
-                        });
+                        }
+                        Err(e) => {
+                            error!("DNS listener recv error: {e}");
+                        }
                     }
-                }
-                Err(e) => {
-                    error!("DNS listener recv error: {e}");
                 }
             }
         }
+    }
+
+    async fn resolve_upstream(query: &[u8], upstream_addr: SocketAddr) -> Result<Vec<u8>> {
+        let sock = UdpSocket::bind("127.0.0.1:0")
+            .await
+            .context("Failed to bind upstream UDP socket")?;
+
+        timeout(Duration::from_secs(DNS_TIMEOUT_SECS), async {
+            sock.send_to(query, upstream_addr).await?;
+            let mut resp = vec![0u8; MAX_DNS_PACKET];
+            let (n, _) = sock.recv_from(&mut resp).await?;
+            Ok(resp[..n].to_vec())
+        })
+        .await
+        .context("Upstream DNS timed out")?
     }
 
     pub async fn apply_system_dns(&self) -> Result<()> {

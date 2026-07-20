@@ -2,10 +2,10 @@ use aes_gcm::{
     aead::{Aead, KeyInit, OsRng},
     Aes256Gcm, Nonce,
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 use argon2::{Argon2, Params as Argon2Params};
 use rand::RngCore;
-use zeroize::Zeroize;
+
 
 pub struct KeyDerivation;
 

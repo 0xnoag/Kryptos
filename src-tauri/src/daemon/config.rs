@@ -7,8 +7,6 @@ use argon2::{Argon2, Params as Argon2Params};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tracing::warn;
-use zeroize::Zeroize;
-
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum TrafficMode {
     #[serde(rename = "split")]
@@ -262,7 +260,7 @@ impl ConfigManager {
 
 impl Drop for ConfigManager {
     fn drop(&mut self) {
-        use zeroize::Zeroize;
+
         self.key.zeroize();
     }
 }
