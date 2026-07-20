@@ -16,6 +16,7 @@ const MAX_SERVICE_NAME_LEN: usize = 32;
 /// Connection rate limiting: max 30 connections per window
 const RATE_LIMIT_WINDOW_SECS: u64 = 10;
 const RATE_LIMIT_MAX_CONNECTIONS: u32 = 30;
+const PER_CONNECTION_DELAY_MS: u64 = 50;
 
 /// Nuclear confirmation required string
 const NUCLEAR_CONFIRMATION: &str = "CONFIRM_NUCLEAR_I_AM_SURE";
@@ -75,6 +76,18 @@ impl IpcServer {
     ) -> Result<Self> {
         let sock_path = Path::new(socket_path);
         if sock_path.exists() {
+            #[cfg(unix)]
+            {
+                let meta = std::fs::symlink_metadata(socket_path)
+                    .context("Failed to read socket metadata")?;
+                if meta.file_type().is_symlink() {
+                    anyhow::bail!("Socket path is a symlink, refusing to remove");
+                }
+                use std::os::unix::fs::FileTypeExt;
+                if !meta.file_type().is_socket() {
+                    anyhow::bail!("Socket path exists but is not a Unix socket");
+                }
+            }
             std::fs::remove_file(socket_path).context("Failed to remove existing socket file")?;
         }
 
@@ -251,6 +264,9 @@ impl IpcServer {
             let mut buf = serde_json::to_vec(&response)?;
             buf.push(b'\n');
             writer.write_all(&buf).await?;
+
+            // V-14: Enforce minimum inter-request gap to prevent lock starvation
+            tokio::time::sleep(Duration::from_millis(PER_CONNECTION_DELAY_MS)).await;
         }
 
         Ok(())
@@ -335,8 +351,19 @@ impl IpcServer {
                 level,
                 confirmation,
             } => {
-                let panic_level = match level.to_lowercase().as_str() {
-                    "off" => PanicLevel::Off,
+                let normalized = level.to_lowercase();
+                let mut pe = pe.write().await;
+
+                if normalized == "off" {
+                    return match pe.deactivate().await {
+                        Ok(status) => IpcResponse::PanicStatus(status),
+                        Err(e) => IpcResponse::Error {
+                            message: format!("Panic deactivation failed: {e}"),
+                        },
+                    };
+                }
+
+                let panic_level = match normalized.as_str() {
                     "soft" => PanicLevel::Soft,
                     "hard" => PanicLevel::Hard,
                     "nuclear" => PanicLevel::Nuclear,
@@ -362,7 +389,6 @@ impl IpcServer {
                     }
                 }
 
-                let mut pe = pe.write().await;
                 match pe.activate(panic_level).await {
                     Ok(status) => IpcResponse::PanicStatus(status),
                     Err(e) => IpcResponse::Error {

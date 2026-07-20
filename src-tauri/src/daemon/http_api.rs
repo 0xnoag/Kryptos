@@ -2,7 +2,7 @@ use std::sync::Arc;
 use axum::{
     Router,
     extract::{Request, State},
-    http::{StatusCode, Uri},
+    http::{header, StatusCode, Uri},
     middleware::{self, Next},
     response::{IntoResponse, Json, Response},
     routing::get,
@@ -52,11 +52,24 @@ fn service_status_str(s: &ServiceStatus) -> &str {
     }
 }
 
+const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'";
+
 fn is_local_origin(origin: &str) -> bool {
     origin == "http://localhost"
         || origin.starts_with("http://localhost:")
         || origin == "http://127.0.0.1"
         || origin.starts_with("http://127.0.0.1:")
+}
+
+fn check_origin(request: &Request) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    if let Some(origin) = request.headers().get("Origin").and_then(|v| v.to_str().ok()) {
+        if !is_local_origin(origin) {
+            return Err((StatusCode::FORBIDDEN, Json(ErrorResponse {
+                error: "Cross-origin requests denied".into(),
+            })));
+        }
+    }
+    Ok(())
 }
 
 fn mime_for_path(path: &str) -> &str {
@@ -139,32 +152,49 @@ async fn handle_get_panic(
 
 async fn handle_index(
     State(state): State<HttpApiState>,
+    request: Request,
 ) -> Result<Response, (StatusCode, String)> {
+    if let Err((code, json)) = check_origin(&request) {
+        return Err((code, json.error));
+    }
     let content = tokio::fs::read_to_string("../dist/index.html")
         .await
         .map_err(|_| (StatusCode::NOT_FOUND, "index.html not found".into()))?;
 
     let injected = inject_token_into_html(&content, &state.ui_token);
-    Ok(([(axum::http::header::CONTENT_TYPE, "text/html")], injected).into_response())
+    let mut resp = ([(header::CONTENT_TYPE, "text/html")], injected).into_response();
+    resp.headers_mut().insert(header::CONTENT_SECURITY_POLICY, CSP.parse().unwrap());
+    Ok(resp)
 }
 
 /// SPA fallback: serve static files from ../dist, or fall back to index.html with token injected
 async fn handle_spa_fallback(
     State(state): State<HttpApiState>,
-    uri: Uri,
+    request: Request,
 ) -> Response {
-    let path = format!("../dist{}", uri.path());
+    // V-15: Check Origin on SPA fallback to prevent cross-origin token extraction
+    if let Some(origin) = request.headers().get("Origin").and_then(|v| v.to_str().ok()) {
+        if !is_local_origin(origin) {
+            return (StatusCode::FORBIDDEN, Json(ErrorResponse {
+                error: "Cross-origin requests denied".into(),
+            })).into_response();
+        }
+    }
+
+    let path = format!("../dist{}", request.uri().path());
 
     if let Ok(content) = tokio::fs::read(&path).await {
         let mime = mime_for_path(&path);
-        return ([(axum::http::header::CONTENT_TYPE, mime)], content).into_response();
+        return ([(header::CONTENT_TYPE, mime)], content).into_response();
     }
 
     // SPA fallback: serve index.html with token injection
     match tokio::fs::read_to_string("../dist/index.html").await {
         Ok(content) => {
             let injected = inject_token_into_html(&content, &state.ui_token);
-            ([(axum::http::header::CONTENT_TYPE, "text/html")], injected).into_response()
+            let mut resp = ([(header::CONTENT_TYPE, "text/html")], injected).into_response();
+            resp.headers_mut().insert(header::CONTENT_SECURITY_POLICY, CSP.parse().unwrap());
+            resp
         }
         Err(_) => (StatusCode::NOT_FOUND, "Not found").into_response(),
     }

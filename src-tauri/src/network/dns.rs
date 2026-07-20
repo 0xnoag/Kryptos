@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::UdpSocket;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, Semaphore};
 use tokio::time::timeout;
 use tracing::{error, info, trace, warn};
 
@@ -11,6 +11,7 @@ use crate::daemon::config::DnsConfig;
 
 const MAX_DNS_PACKET: usize = 512;
 const DNS_TIMEOUT_SECS: u64 = 5;
+const MAX_CONCURRENT_DNS_TASKS: usize = 64;
 
 /// Resolve a raw DNS query via DNS-over-HTTPS (RFC 8484).
 /// Uses ureq to POST to the configured DoH endpoint.
@@ -59,6 +60,7 @@ pub struct DnsHijacker {
     upstream_socket: Option<UdpSocket>,
     listener_socket: Option<UdpSocket>,
     cache: Arc<RwLock<lru::LruCache<Vec<u8>, Vec<u8>>>>,
+    semaphore: Arc<Semaphore>,
 }
 
 impl DnsHijacker {
@@ -76,6 +78,7 @@ impl DnsHijacker {
             config,
             upstream_socket: None,
             listener_socket: None,
+            semaphore: Arc::new(Semaphore::new(MAX_CONCURRENT_DNS_TASKS)),
         }
     }
 
@@ -142,12 +145,18 @@ impl DnsHijacker {
                                 }
                                 trace!("DNS cache hit for {}", src);
                             } else {
+                                let sem = self.semaphore.clone();
                                 let cache_clone = cache.clone();
                                 let upstream_addr_clone = upstream_addr;
                                 let tx = response_tx.clone();
                                 let doh_url = doh_url.clone();
 
                                 tokio::spawn(async move {
+                                    // V-13: Acquire semaphore permit to cap concurrent tasks
+                                    let _permit = sem.acquire().await.unwrap_or_else(|_|
+                                        // Semaphore closed — just proceed without permit
+                                        panic!("DNS semaphore closed")
+                                    );
                                     let response = if use_doh {
                                         match timeout(
                                             Duration::from_secs(DNS_TIMEOUT_SECS),

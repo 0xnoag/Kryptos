@@ -4,6 +4,7 @@ use endpoint_privacy_suite::firewall::panic::PanicLevel;
 use endpoint_privacy_suite::{daemon, network, security};
 use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
+use zeroize::Zeroizing;
 
 #[cfg(unix)]
 async fn signal_sigterm() {
@@ -102,7 +103,7 @@ async fn main() -> anyhow::Result<()> {
 
     let password = load_password(&cli.config_dir)?;
     let daemon =
-        endpoint_privacy_suite::EndpointPrivacyDaemon::new(&cli.config_dir, &password, strict)
+        endpoint_privacy_suite::EndpointPrivacyDaemon::new(&cli.config_dir, password.as_str(), strict)
             .await?;
     drop(password);
 
@@ -197,27 +198,32 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn load_password(config_dir: &str) -> anyhow::Result<String> {
-    if let Ok(pw) = std::env::var("EPS_PASSWORD") {
+fn load_password(config_dir: &str) -> anyhow::Result<Zeroizing<String>> {
+    let pw = if let Ok(pw) = std::env::var("EPS_PASSWORD") {
         if !pw.is_empty() {
-            return Ok(pw);
+            pw
+        } else {
+            anyhow::bail!("EPS_PASSWORD is set but empty");
         }
-    }
-    let pw_path = PathBuf::from(config_dir).join("password");
-    if pw_path.exists() {
-        let pw = std::fs::read_to_string(&pw_path)
-            .context(format!(
-                "Failed to read password file: {}",
+    } else {
+        let pw_path = PathBuf::from(config_dir).join("password");
+        if pw_path.exists() {
+            std::fs::read_to_string(&pw_path)
+                .context(format!(
+                    "Failed to read password file: {}",
+                    pw_path.display()
+                ))?
+                .trim()
+                .to_string()
+        } else {
+            anyhow::bail!(
+                "No password found. Set EPS_PASSWORD env var or create {}",
                 pw_path.display()
-            ))?
-            .trim()
-            .to_string();
-        if !pw.is_empty() {
-            return Ok(pw);
+            );
         }
+    };
+    if pw.is_empty() {
+        anyhow::bail!("Password is empty after loading");
     }
-    anyhow::bail!(
-        "No password found. Set EPS_PASSWORD env var or create {}",
-        pw_path.display()
-    );
+    Ok(Zeroizing::new(pw))
 }

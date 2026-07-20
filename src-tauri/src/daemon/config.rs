@@ -182,9 +182,12 @@ impl ConfigManager {
         let params = Argon2Params::new(65536, 3, 4, Some(32))
             .map_err(|e| anyhow::anyhow!("Failed to create Argon2 params: {e}"))?;
 
-        Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params)
+        if let Err(e) = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params)
             .hash_password_into(password.as_bytes(), &salt, &mut key)
-            .map_err(|e| anyhow::anyhow!("Argon2 key derivation failed: {e}"))?;
+        {
+            key.zeroize();
+            anyhow::bail!("Argon2 key derivation failed: {e}");
+        }
 
         Ok(key)
     }
@@ -238,21 +241,24 @@ impl ConfigManager {
         output.extend_from_slice(&nonce_bytes);
         output.extend_from_slice(&ciphertext);
 
-        std::fs::write(&self.config_path, &output).context("Failed to write encrypted config")?;
-
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
-            if let Ok(meta) = std::fs::metadata(&self.config_path) {
-                let mut perms = meta.permissions();
-                perms.set_mode(0o600);
-                if let Err(e) = std::fs::set_permissions(&self.config_path, perms) {
-                    warn!(
-                        "Failed to set permissions on {}: {e}",
-                        self.config_path.display()
-                    );
-                }
-            }
+            use std::os::unix::fs::OpenOptionsExt;
+            use std::io::Write;
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&self.config_path)
+                .context("Failed to write encrypted config")?;
+            file.write_all(&output)
+                .context("Failed to write encrypted config")?;
+            file.sync_all().ok();
+        }
+        #[cfg(not(unix))]
+        {
+            std::fs::write(&self.config_path, &output).context("Failed to write encrypted config")?;
         }
 
         Ok(())
