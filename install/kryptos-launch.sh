@@ -6,14 +6,11 @@ set -e
 
 DAEMON="/usr/local/lib/kryptos/endpoint-privacy-suite"
 ENV_FILE="/etc/endpoint-privacy/env"
-CONFIG_DIR="/etc/endpoint-privacy"
 UI_URL="http://127.0.0.1:8080"
 CHROMIUM_PROFILE="/tmp/kryptos-profile"
 
-# Load daemon environment (EPS_PASSWORD, etc.)
-if [ -f "$ENV_FILE" ]; then
-    source "$ENV_FILE"
-fi
+# Load EPS_PASSWORD from root-only env file
+export EPS_PASSWORD=$(sudo cat "$ENV_FILE" 2>/dev/null | grep '^EPS_PASSWORD=' | cut -d'"' -f2)
 
 # Start daemon if not running
 if ! pgrep -x "$(basename "$DAEMON")" > /dev/null 2>&1; then
@@ -33,10 +30,19 @@ if ! pgrep -x "$(basename "$DAEMON")" > /dev/null 2>&1; then
     done
 fi
 
-# Launch Chromium in app mode
-exec chromium --app="$UI_URL" \
-    --window-size=1200,800 \
-    --disable-extensions \
-    --disable-plugins \
-    --no-first-run \
+# Build chromium args
+CHROMIUM_ARGS=(
+    --app="$UI_URL"
+    --window-size=1200,800
+    --disable-extensions
+    --disable-plugins
+    --no-first-run
     --user-data-dir="$CHROMIUM_PROFILE"
+)
+
+# Chromium refuses --no-sandbox as non-root; root requires it
+if [ "$(id -u)" -eq 0 ]; then
+    CHROMIUM_ARGS+=(--no-sandbox)
+fi
+
+exec chromium "${CHROMIUM_ARGS[@]}"

@@ -80,7 +80,7 @@ if [ ! -f "$ENV_DEST" ]; then
     echo "=== Generating Config Encryption Password ==="
     # Generate a strong random 48-char alphanumeric password
     password=$(python3 -c "import secrets,string; print(''.join(secrets.choice(string.ascii_letters+string.digits) for _ in range(48)))")
-    echo "EPS_PASSWORD=\"$password\"" > "$ENV_DEST"
+    echo "export EPS_PASSWORD=\"$password\"" > "$ENV_DEST"
     chmod 600 "$ENV_DEST"
     echo
     echo "  ┌─────────────────────────────────────────────────────────────┐"
