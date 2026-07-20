@@ -28,7 +28,10 @@ tokio-stream = { version = "0.1", features = ["fs"] }
 sha2 = "0.10"
 hex = "0.4"
 ureq = { version = "2", features = ["native-certs"] }
-tauri = { version = "2", default-features = false, features = [] }
+tauri = { version = "2", optional = true, default-features = false, features = [] }
 
 [build-dependencies]
-tauri-build = { version = "2", default-features = false, features = [] }
+tauri-build = { version = "2", optional = true, default-features = false, features = [] }
+
+[features]
+desktop = ["tauri", "tauri-build"]
