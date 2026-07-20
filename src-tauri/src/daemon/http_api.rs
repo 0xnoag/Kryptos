@@ -186,8 +186,6 @@ fn dist_dir() -> PathBuf {
     PathBuf::from("./dist")
 }
 
-use std::path::Path;
-
 async fn handle_index(
     State(state): State<HttpApiState>,
     request: Request,
