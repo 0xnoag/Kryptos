@@ -57,9 +57,7 @@ install -m 755 "$BINARY" "$DAEMON_DEST"
 echo "Installing icon -> $ICON_DEST"
 install -m 644 "$ICON" "$ICON_DEST"
 
-# Build and install frontend (static files for web UI)
-echo "Building frontend..."
-(cd "$REPO_DIR" && npm install --silent && npm run build 2>/dev/null)
+# Install frontend (built by Makefile before install)
 if [ -d "$REPO_DIR/dist" ]; then
     echo "Installing web UI -> /opt/kryptos/dist/"
     mkdir -p /opt/kryptos/dist
@@ -109,8 +107,17 @@ if [ -d "/root/.local/share/applications" ]; then
     ln -sf "$DESKTOP_DEST" "/root/.local/share/applications/kryptos.desktop"
 fi
 
+# Copy .desktop to each user's Desktop folder
+for user_home in /home/* /root; do
+    if [ -d "$user_home/Desktop" ]; then
+        cp "$REPO_DIR/install/kryptos.desktop" "$user_home/Desktop/kryptos.desktop"
+        chmod +x "$user_home/Desktop/kryptos.desktop"
+        chown "$(basename "$user_home"):$(basename "$user_home")" "$user_home/Desktop/kryptos.desktop" 2>/dev/null || true
+    fi
+done
+
 echo
 echo "=== Installation complete ==="
-echo "Launch Kryptos from your application menu or run: kryptos-launch"
+echo "Launch Kryptos from your desktop icon or application menu, or run: kryptos-launch"
+echo "Password was saved to $ENV_DEST (root-only)"
 echo "Web UI: http://127.0.0.1:8080"
-echo "IPC socket: /run/endpoint-privacy/ipc.sock"
