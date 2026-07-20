@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=Kryptos
 Comment=Endpoint Privacy Suite — Web UI
-Exec=kryptos ui
+Exec=/usr/local/bin/kryptos ui
 Icon=/opt/kryptos/icon.svg
 Terminal=false
 Type=Application

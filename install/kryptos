@@ -4,6 +4,20 @@ set -euo pipefail
 
 IPC_SOCK="/run/endpoint-privacy/ipc.sock"
 
+# ─── Detect browser ───
+BROWSER=""
+for b in chromium-browser chromium google-chrome; do
+    if command -v "$b" >/dev/null 2>&1; then
+        BROWSER="$b"; break
+    fi
+done
+if [ -z "$BROWSER" ]; then
+    # Fallback: search common paths
+    for p in /usr/bin/chromium-browser /usr/bin/chromium /snap/bin/chromium; do
+        if [ -x "$p" ]; then BROWSER="$p"; break; fi
+    done
+fi
+
 # ─── Colors ───
 R="\033[1;31m"; G="\033[1;32m"; Y="\033[1;33m"; B="\033[1;34m"; C="\033[1;36m"; W="\033[0m"
 
@@ -113,9 +127,15 @@ panic)
 
 # ─── UI (open browser) ───
 ui|web|open)
-    exec chromium --app=http://127.0.0.1:8080 --window-size=1200,800 \
+    if [ -z "$BROWSER" ]; then
+        echo -e "${R}ERROR:${W} No Chromium found. Install chromium-browser:"
+        echo "  sudo apt install -y chromium-browser"
+        exit 1
+    fi
+    PROFILE=$(mktemp -d /tmp/kryptos-profile-XXXXXX)
+    exec "$BROWSER" --app=http://127.0.0.1:8080 --window-size=1200,800 \
         --disable-extensions --disable-plugins --no-first-run \
-        --user-data-dir=/tmp/kryptos-profile
+        --user-data-dir="$PROFILE"
     ;;
 
 # ─── explain ───

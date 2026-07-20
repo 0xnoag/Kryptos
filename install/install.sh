@@ -26,9 +26,17 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Check prerequisites
-for cmd in chromium curl; do
+CHROMIUM=""
+for c in chromium-browser chromium google-chrome; do
+    if command -v "$c" >/dev/null 2>&1; then CHROMIUM="$c"; break; fi
+done
+if [ -z "$CHROMIUM" ]; then
+    echo "WARNING: No Chromium found (checked: chromium-browser, chromium, google-chrome)."
+    echo "  The desktop icon will not work. Install with: sudo apt install -y chromium-browser"
+fi
+for cmd in curl; do
     if ! command -v "$cmd" > /dev/null 2>&1; then
-        echo "WARNING: '$cmd' not found. Install it for full functionality."
+        echo "WARNING: '$cmd' not found."
     fi
 done
 
