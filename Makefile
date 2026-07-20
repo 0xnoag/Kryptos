@@ -1,4 +1,4 @@
-.PHONY: all release sign verify-signature check-hashes hashes audit clean
+.PHONY: all release sign verify-signature check-hashes hashes audit clean install uninstall
 
 DAEMON_DIR := src-tauri
 RELEASE_DIR := $(DAEMON_DIR)/target/release
@@ -94,8 +94,9 @@ check-hashes:
 		echo "All hashes match."; \
 	fi
 
-# Install system-wide (daemon, launcher, desktop entry, icon)
+# Install system-wide (daemon, frontend, launcher, desktop entry, icon)
 install: $(DAEMON_DIR)/target/release/$(DAEMON_BIN)
+	npm run build
 	sudo bash install/install.sh
 
 # Remove system-wide installation

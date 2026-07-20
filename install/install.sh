@@ -57,6 +57,15 @@ install -m 755 "$BINARY" "$DAEMON_DEST"
 echo "Installing icon -> $ICON_DEST"
 install -m 644 "$ICON" "$ICON_DEST"
 
+# Build and install frontend (static files for web UI)
+echo "Building frontend..."
+(cd "$REPO_DIR" && npm install --silent && npm run build 2>/dev/null)
+if [ -d "$REPO_DIR/dist" ]; then
+    echo "Installing web UI -> /opt/kryptos/dist/"
+    mkdir -p /opt/kryptos/dist
+    cp -r "$REPO_DIR/dist/"* /opt/kryptos/dist/
+fi
+
 # Install wrapper script
 echo "Installing launcher -> $WRAPPER_DEST"
 install -m 755 "$REPO_DIR/install/kryptos-launch.sh" "$WRAPPER_DEST"

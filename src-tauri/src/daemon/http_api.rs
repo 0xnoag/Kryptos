@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use axum::{
     Router,
@@ -160,19 +160,33 @@ async fn handle_get_panic(
 }
 
 fn dist_dir() -> PathBuf {
+    // Check known install locations first
+    for candidate in &[
+        "/opt/kryptos/dist",
+        "/usr/local/share/kryptos/dist",
+    ] {
+        let p = PathBuf::from(candidate);
+        if p.join("index.html").exists() {
+            return p;
+        }
+    }
+    // Walk up from binary looking for dist/index.html
     if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            if let Some(grand) = parent.parent() {
-                if let Some(great) = grand.parent() {
-                    if let Some(root) = great.parent() {
-                        return root.join("dist");
-                    }
-                }
+        let mut dir = exe.parent().unwrap_or(Path::new(".")).to_path_buf();
+        loop {
+            let candidate = dir.join("dist");
+            if candidate.join("index.html").exists() {
+                return candidate;
+            }
+            if !dir.pop() {
+                break;
             }
         }
     }
     PathBuf::from("./dist")
 }
+
+use std::path::Path;
 
 async fn handle_index(
     State(state): State<HttpApiState>,
