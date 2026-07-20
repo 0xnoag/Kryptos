@@ -14,10 +14,8 @@ export function Dashboard() {
 
   const tor = services.find((s) => s.name === "Tor");
   const awg = services.find((s) => s.name === "AmneziaWG");
-  const syncthing = services.find((s) => s.name === "Syncthing");
   const torOk = tor?.status === "Running";
   const awgOk = awg?.status === "Running";
-  const stOk = syncthing?.status === "Running";
   const runningCount = services.filter((s) => s.status === "Running").length;
   const totalCount = services.length;
   const ks = panic?.kill_switch_active ?? false;

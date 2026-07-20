@@ -16,16 +16,14 @@ class IpcClient {
     timeout: ReturnType<typeof setTimeout>;
   }>();
 
-  async connect(path?: string): Promise<void> {
+  async connect(_path?: string): Promise<void> {
     if (this.socket?.readyState === WebSocket.OPEN) return;
 
     if (window.__TAURI__) {
       const { invoke } = await import("@tauri-apps/api/core");
-      const response = await invoke<IpcResponse>("ipc_request", {
+      await invoke<IpcResponse>("ipc_request", {
         request: { type: "GetStatus" }
       });
-    } else {
-      return;
     }
   }
 

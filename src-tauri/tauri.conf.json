@@ -10,7 +10,6 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "title": "Endpoint Privacy Suite",
     "windows": [
       {
         "title": "Endpoint Privacy Suite",
