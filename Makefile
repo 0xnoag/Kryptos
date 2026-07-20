@@ -101,9 +101,9 @@ install: $(DAEMON_DIR)/target/release/$(DAEMON_BIN)
 
 # Complete clean slate: remove everything and reinstall
 fresh: uninstall
-	rm -rf dist
-	rm -f /etc/endpoint-privacy/config.enc
-	rm -rf /tmp/kryptos-profile
+	sudo rm -rf dist
+	sudo rm -f /etc/endpoint-privacy/config.enc
+	sudo rm -rf /tmp/kryptos-profile
 	cargo build --release --manifest-path $(DAEMON_DIR)/Cargo.toml
 	npm run build
 	sudo bash install/install.sh
