@@ -200,7 +200,7 @@ async fn handle_spa_fallback(
     let path = dist_dir().join(request.uri().path().strip_prefix('/').unwrap_or(""));
 
     if let Ok(content) = tokio::fs::read(&path).await {
-        let mime = mime_for_path(&path);
+        let mime = mime_for_path(path.to_str().unwrap_or(""));
         return ([(header::CONTENT_TYPE, mime)], content).into_response();
     }
 
