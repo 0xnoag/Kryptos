@@ -20,12 +20,15 @@ pub struct HttpApiState {
     pub panic_engine: Arc<RwLock<PanicEngine>>,
     pub ui_token: String,
     pub http_port: u16,
+    pub first_run: bool,
+    pub setup_password: Option<String>,
 }
 
 #[derive(Serialize)]
 struct StatusResponse {
     services: Vec<ServiceInfoJson>,
     panic: PanicStatus,
+    first_run: bool,
 }
 
 #[derive(Serialize)]
@@ -85,11 +88,15 @@ fn mime_for_path(path: &str) -> &str {
     else { "application/octet-stream" }
 }
 
-fn inject_token_into_html(content: &str, token: &str) -> String {
-    content.replace(
-        "</head>",
-        &format!(r#"<meta name="api-token" content="{token}"></head>"#),
-    )
+fn inject_token_into_html(content: &str, token: &str, first_run: bool, setup_password: Option<&str>) -> String {
+    let mut meta = format!(r#"<meta name="api-token" content="{token}">"#);
+    if first_run {
+        meta.push_str(r#"<meta name="first-run" content="true">"#);
+        if let Some(pw) = setup_password {
+            meta.push_str(&format!(r#"<meta name="setup-password" content="{pw}">"#));
+        }
+    }
+    content.replace("</head>", &format!("{meta}</head>"))
 }
 
 async fn auth_middleware(
@@ -141,6 +148,7 @@ async fn handle_get_status(
             })
             .collect(),
         panic,
+        first_run: state.first_run,
     })
 }
 
@@ -177,7 +185,7 @@ async fn handle_index(
         .await
         .map_err(|_| (StatusCode::NOT_FOUND, "index.html not found".into()))?;
 
-    let injected = inject_token_into_html(&content, &state.ui_token);
+    let injected = inject_token_into_html(&content, &state.ui_token, state.first_run, state.setup_password.as_deref());
     let mut resp = ([(header::CONTENT_TYPE, "text/html")], injected).into_response();
     resp.headers_mut().insert(header::CONTENT_SECURITY_POLICY, CSP.parse().unwrap());
     Ok(resp)
@@ -207,7 +215,7 @@ async fn handle_spa_fallback(
     // SPA fallback: serve index.html with token injection
     match tokio::fs::read_to_string(dist_dir().join("index.html")).await {
         Ok(content) => {
-            let injected = inject_token_into_html(&content, &state.ui_token);
+            let injected = inject_token_into_html(&content, &state.ui_token, state.first_run, state.setup_password.as_deref());
             let mut resp = ([(header::CONTENT_TYPE, "text/html")], injected).into_response();
             resp.headers_mut().insert(header::CONTENT_SECURITY_POLICY, CSP.parse().unwrap());
             resp

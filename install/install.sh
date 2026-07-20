@@ -65,22 +65,25 @@ install -m 755 "$REPO_DIR/install/kryptos-launch.sh" "$WRAPPER_DEST"
 echo "Installing desktop entry -> $DESKTOP_DEST"
 install -m 644 "$REPO_DIR/install/kryptos.desktop" "$DESKTOP_DEST"
 
-# Create env file (if not exists, prompt for password)
+# Create env file with auto-generated password (if not exists)
 if [ ! -f "$ENV_DEST" ]; then
     echo
-    echo "=== Config Encryption Password ==="
-    echo "This password decrypts your Kryptos configuration."
-    read -r -s -p "Enter EPS_PASSWORD: " password
-    echo
-    read -r -s -p "Confirm password: " password2
-    echo
-    if [ "$password" != "$password2" ]; then
-        echo "ERROR: Passwords do not match." >&2
-        exit 1
-    fi
+    echo "=== Generating Config Encryption Password ==="
+    # Generate a strong random 48-char alphanumeric password
+    password=$(tr -dc 'A-Za-z0-9!@#$%^&*_-' < /dev/urandom | fold -w 48 | head -n 1)
     echo "EPS_PASSWORD=\"$password\"" > "$ENV_DEST"
     chmod 600 "$ENV_DEST"
-    echo "Password saved to $ENV_DEST (root-only)"
+    echo
+    echo "  ┌─────────────────────────────────────────────────────────────┐"
+    echo "  │  YOUR KRYPTOS CONFIG PASSWORD (save this securely!)        │"
+    echo "  │                                                             │"
+    printf "  │  %-59s │\n" "$password"
+    echo "  │                                                             │"
+    echo "  │  Stored in: $ENV_DEST            │"
+    echo "  └─────────────────────────────────────────────────────────────┘"
+    echo
+    echo "This password encrypts your configuration at /etc/endpoint-privacy/"
+    echo "The web UI will display it once on first launch."
 fi
 
 # Symlink desktop entry for all existing users

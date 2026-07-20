@@ -102,6 +102,16 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let password = load_password(&cli.config_dir)?;
+
+    // Detect first run (config.enc doesn't exist yet)
+    let config_path = PathBuf::from(&cli.config_dir).join("config.enc");
+    let first_run = !config_path.exists();
+    let setup_password = if first_run {
+        Some(password.to_string())
+    } else {
+        None
+    };
+
     let daemon =
         endpoint_privacy_suite::EndpointPrivacyDaemon::new(&cli.config_dir, password.as_str(), strict)
             .await?;
@@ -138,6 +148,8 @@ async fn main() -> anyhow::Result<()> {
         panic_engine: pe.clone(),
         ui_token,
         http_port: cli.http_port,
+        first_run,
+        setup_password,
     };
 
     let http_handle = tokio::spawn(async move {

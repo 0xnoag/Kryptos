@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { useDaemon } from "../lib/daemon-context";
-import { Route, Radio } from "lucide-react";
+import { Route, Radio, ShieldCheck, X, Copy, Check } from "lucide-react";
 
 function formatUptime(secs: number): string {
   if (secs < 60) return `${secs}s`;
@@ -9,8 +10,16 @@ function formatUptime(secs: number): string {
   return `${h}h ${m % 60}m`;
 }
 
+function getSetupPassword(): string | null {
+  const meta = document.querySelector<HTMLMetaElement>('meta[name="setup-password"]');
+  return meta?.content ?? null;
+}
+
 export function Dashboard() {
-  const { services, panic } = useDaemon();
+  const { services, panic, firstRun } = useDaemon();
+  const [showWelcome, setShowWelcome] = useState(firstRun);
+  const [copied, setCopied] = useState(false);
+  const setupPassword = getSetupPassword();
 
   const tor = services.find((s) => s.name === "Tor");
   const awg = services.find((s) => s.name === "AmneziaWG");
@@ -37,6 +46,52 @@ export function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* First-run welcome banner */}
+      {showWelcome && setupPassword && (
+        <div className="card border border-[#4ade80]/30 bg-[#4ade80]/5">
+          <div className="flex items-start justify-between">
+            <div className="flex items-start gap-3">
+              <ShieldCheck className="w-6 h-6 text-[#4ade80] mt-0.5 shrink-0" />
+              <div>
+                <div className="text-[11px] font-mono text-[#4ade80] tracking-wider mb-1">
+                  WELCOME TO KRYPTOS // FIRST RUN SETUP
+                </div>
+                <div className="text-[10px] font-mono text-[#c8ccd4] leading-relaxed">
+                  Your configuration is encrypted with the password below.
+                  Save this password — it is required to decrypt your config on daemon restart.
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <code className="bg-[#0f0f1a] px-3 py-1.5 text-[13px] font-mono text-[#4ade80] border border-[#4ade80]/20 select-all tracking-wider">
+                    {setupPassword}
+                  </code>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(setupPassword);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    }}
+                    className="p-1.5 border border-[#2a2f3f] hover:border-[#4ade80]/40 hover:bg-[#4ade80]/10 transition-colors"
+                    title="Copy password"
+                  >
+                    {copied ? <Check className="w-3.5 h-3.5 text-[#4ade80]" /> : <Copy className="w-3.5 h-3.5 text-[#c8ccd4]" />}
+                  </button>
+                </div>
+                <div className="mt-2 text-[9px] font-mono text-[#6b7280]">
+                  Stored in /etc/endpoint-privacy/env (root-only, mode 0600)
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowWelcome(false)}
+              className="p-1 border border-[#2a2f3f] hover:border-[#ef4444]/40 hover:bg-[#ef4444]/10 transition-colors shrink-0"
+              title="Dismiss"
+            >
+              <X className="w-3 h-3 text-[#c8ccd4]" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Quick status row */}
       <div className="grid grid-cols-4 gap-3">

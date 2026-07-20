@@ -22,6 +22,7 @@ interface DaemonState {
   services: ServiceInfo[];
   panic: PanicStatus | null;
   error: string | null;
+  firstRun: boolean;
 }
 
 interface DaemonContextType extends DaemonState {
@@ -36,6 +37,7 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
     services: [],
     panic: null,
     error: null,
+    firstRun: document.querySelector<HTMLMetaElement>('meta[name="first-run"]')?.content === "true",
   });
 
   const refresh = useCallback(async () => {
@@ -46,12 +48,13 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
           services: ServiceInfo[];
           panic: PanicStatus;
         };
-        setState({
+        setState((s) => ({
           connected: true,
           services: payload.services,
           panic: payload.panic,
           error: null,
-        });
+          firstRun: s.firstRun,
+        }));
       }
     } catch (e) {
       setState((s) => ({
