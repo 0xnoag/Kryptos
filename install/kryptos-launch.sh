@@ -2,13 +2,16 @@
 set -e
 
 # Kryptos — Endpoint Privacy Suite Launcher
-# Spawns the daemon if not running, then opens the web UI in Chromium app mode.
-# Must be run as root (desktop file wraps with sudo).
+# Spawns the daemon as root, then opens the web UI in Chromium app mode as the desktop user.
+# Must be run as root (desktop icon wraps with sudo -E).
 
 DAEMON="/usr/local/lib/kryptos/endpoint-privacy-suite"
 ENV_FILE="/etc/endpoint-privacy/env"
 UI_URL="http://127.0.0.1:8080"
 CHROMIUM_PROFILE="/tmp/kryptos-profile"
+
+# Determine the real desktop user (set by sudo -E or logname)
+DESKTOP_USER="${SUDO_USER:-$(logname 2>/dev/null || echo kali)}"
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "ERROR: kryptos-launch must be run as root. Use: sudo kryptos-launch" >&2
@@ -42,20 +45,13 @@ if ! pgrep -x "$(basename "$DAEMON")" > /dev/null 2>&1; then
     done
 fi
 
-# Build chromium args
-CHROMIUM_ARGS=(
-    --app="$UI_URL"
-    --window-size=1200,800
-    --disable-extensions
-    --disable-plugins
-    --no-first-run
-    --user-data-dir="$CHROMIUM_PROFILE"
-)
+echo "Opening Kryptos web UI for user: $DESKTOP_USER"
 
-# Chromium refuses --no-sandbox as non-root; root requires it
-if [ "$(id -u)" -eq 0 ]; then
-    CHROMIUM_ARGS+=(--no-sandbox)
-fi
-
-echo "Opening Kryptos web UI..."
-exec chromium "${CHROMIUM_ARGS[@]}"
+# Run chromium as the desktop user (NOT as root — root breaks GPU/X11)
+sudo -u "$DESKTOP_USER" --set-home chromium \
+    --app="$UI_URL" \
+    --window-size=1200,800 \
+    --disable-extensions \
+    --disable-plugins \
+    --no-first-run \
+    --user-data-dir="$CHROMIUM_PROFILE" 2>/dev/null
