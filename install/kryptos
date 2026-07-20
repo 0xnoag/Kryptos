@@ -127,15 +127,19 @@ panic)
 
 # ─── UI (open browser) ───
 ui|web|open)
-    if [ -z "$BROWSER" ]; then
-        echo -e "${R}ERROR:${W} No Chromium found. Install chromium-browser:"
-        echo "  sudo apt install -y chromium-browser"
-        exit 1
+    CMD="${BROWSER:-}"
+    if [ -z "$CMD" ]; then
+        for c in chromium chromium-browser google-chrome; do
+            if command -v "$c" >/dev/null 2>&1; then CMD="$c"; break; fi
+        done
     fi
-    PROFILE=$(mktemp -d /tmp/kryptos-profile-XXXXXX)
-    exec "$BROWSER" --app=http://127.0.0.1:8080 --window-size=1200,800 \
-        --disable-extensions --disable-plugins --no-first-run \
-        --user-data-dir="$PROFILE"
+    if [ -n "$CMD" ]; then
+        "$CMD" --app=http://127.0.0.1:8080 --window-size=1200,800 \
+            --disable-extensions --disable-plugins --no-first-run \
+            --user-data-dir=/tmp/kryptos-profile &
+        exit 0
+    fi
+    echo -e "${R}ERROR:${W} No Chromium found. Install: sudo apt install -y chromium-browser"
     ;;
 
 # ─── explain ───
