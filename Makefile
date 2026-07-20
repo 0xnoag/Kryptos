@@ -94,6 +94,14 @@ check-hashes:
 		echo "All hashes match."; \
 	fi
 
+# Install system-wide (daemon, launcher, desktop entry, icon)
+install: $(DAEMON_DIR)/target/release/$(DAEMON_BIN)
+	sudo bash install/install.sh
+
+# Remove system-wide installation
+uninstall:
+	sudo bash install/uninstall.sh
+
 # Run cargo audit
 audit:
 	cargo audit --manifest-path $(DAEMON_DIR)/Cargo.toml

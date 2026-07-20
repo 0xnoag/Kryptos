@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a1a2e"/>
+      <stop offset="100%" stop-color="#0f0f1a"/>
+    </linearGradient>
+    <linearGradient id="shield" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#4f46e5"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#818cf8" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#6366f1" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000" flood-opacity="0.4"/>
+    </filter>
+    <filter id="innerGlow">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="6" result="blur"/>
+      <feOffset dx="0" dy="0"/>
+      <feComposite in2="SourceAlpha" operator="arithmetic" k2="-1" k3="1"/>
+      <feFlood flood-color="#818cf8" flood-opacity="0.15"/>
+      <feComposite operator="in" in2="blur"/>
+      <feComposite operator="over" in2="SourceGraphic"/>
+    </filter>
+  </defs>
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="248" fill="url(#bg)" stroke="#2d2d4a" stroke-width="3"/>
+  <!-- Outer glow ring -->
+  <circle cx="256" cy="256" r="200" fill="none" stroke="url(#glow)" stroke-width="1"/>
+  <!-- Shield -->
+  <g filter="url(#shadow)">
+    <path d="M256 80 L400 140 L400 260 Q400 360 256 440 Q112 360 112 260 L112 140 Z"
+          fill="url(#shield)" stroke="#4f46e5" stroke-width="2"/>
+  </g>
+  <!-- Shield highlight -->
+  <path d="M256 80 L400 140 L400 260 Q400 360 256 440 Q112 360 112 260 L112 140 Z"
+        fill="none" stroke="#a5b4fc" stroke-width="1" opacity="0.3"/>
+  <!-- Keyhole circle -->
+  <circle cx="256" cy="248" r="48" fill="#0f0f1a" opacity="0.9"/>
+  <!-- Keyhole cutout -->
+  <circle cx="256" cy="248" r="40" fill="#1a1a2e"/>
+  <!-- Keyhole slot -->
+  <rect x="248" y="278" width="16" height="40" rx="4" fill="#1a1a2e"/>
+  <!-- Keyhole inner glow -->
+  <circle cx="256" cy="248" r="36" fill="none" stroke="#818cf8" stroke-width="1.5" opacity="0.4"/>
+  <!-- Checkmark inside keyhole -->
+  <g filter="url(#innerGlow)">
+    <path d="M238 252 L250 264 L274 236" fill="none" stroke="#818cf8" stroke-width="6"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <!-- Decorative corner dots -->
+  <circle cx="160" cy="160" r="3" fill="#4f46e5" opacity="0.6"/>
+  <circle cx="352" cy="160" r="3" fill="#4f46e5" opacity="0.6"/>
+  <circle cx="160" cy="352" r="3" fill="#4f46e5" opacity="0.6"/>
+  <circle cx="352" cy="352" r="3" fill="#4f46e5" opacity="0.6"/>
+</svg>
