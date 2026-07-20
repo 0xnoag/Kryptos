@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use std::time::Duration;
 use tokio::process::Command;
 use tokio::time::timeout;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 const COMMAND_TIMEOUT_SECS: u64 = 10;
 

@@ -38,7 +38,7 @@ impl ServiceName {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ServiceStatus {
     Stopped,
     Starting,
@@ -281,8 +281,21 @@ impl ProcessManager {
                     proc.status = ServiceStatus::Stopped;
                     return;
                 }
-                output = child.wait_with_output() => {
-                    output
+                status = child.wait() => {
+                    use tokio::io::AsyncReadExt;
+                    let mut stdout_buf = Vec::new();
+                    let mut stderr_buf = Vec::new();
+                    if let Some(ref mut out) = child.stdout {
+                        let _ = out.read_to_end(&mut stdout_buf).await;
+                    }
+                    if let Some(ref mut err) = child.stderr {
+                        let _ = err.read_to_end(&mut stderr_buf).await;
+                    }
+                    status.map(|s| std::process::Output {
+                        status: s,
+                        stdout: stdout_buf,
+                        stderr: stderr_buf,
+                    })
                 }
             };
 

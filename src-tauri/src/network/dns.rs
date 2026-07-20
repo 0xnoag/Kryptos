@@ -135,7 +135,13 @@ impl DnsHijacker {
                         trace!("DNS cache hit for {}", src);
                     } else {
                         let cache_clone = cache.clone();
-                        let upstream_clone = upstream.clone();
+                        let upstream_clone = match upstream.try_clone() {
+                            Ok(s) => s,
+                            Err(e) => {
+                                warn!("DNS upstream clone failed (FD exhaustion?): {e}");
+                                continue;
+                            }
+                        };
                         let upstream_addr_clone = upstream_addr;
                         let listener_for_spawn = match listener.try_clone() {
                             Ok(s) => s,

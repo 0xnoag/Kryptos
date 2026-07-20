@@ -110,6 +110,7 @@ table inet endpoint_privacy {
 }
 "#;
 
+#[derive(Debug)]
 pub enum KillSwitchLevel {
     Soft,
     Hard,

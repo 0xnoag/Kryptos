@@ -20,11 +20,11 @@ impl KeyDerivation {
     /// - 32-byte output
     pub fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; 32]> {
         let mut key = [0u8; 32];
-        let params =
-            Argon2Params::new(65536, 3, 4, Some(32)).context("Failed to create Argon2 params")?;
+        let params = Argon2Params::new(65536, 3, 4, Some(32))
+            .map_err(|e| anyhow::anyhow!("Failed to create Argon2 params: {e}"))?;
         Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params)
             .hash_password_into(password.as_bytes(), salt, &mut key)
-            .context("Argon2 key derivation failed")?;
+            .map_err(|e| anyhow::anyhow!("Argon2 key derivation failed: {e}"))?;
         Ok(key)
     }
 

@@ -180,12 +180,12 @@ impl ConfigManager {
         };
 
         let mut key = [0u8; 32];
-        let params =
-            Argon2Params::new(65536, 3, 4, Some(32)).context("Failed to create Argon2 params")?;
+        let params = Argon2Params::new(65536, 3, 4, Some(32))
+            .map_err(|e| anyhow::anyhow!("Failed to create Argon2 params: {e}"))?;
 
         Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params)
             .hash_password_into(password.as_bytes(), &salt, &mut key)
-            .context("Argon2 key derivation failed")?;
+            .map_err(|e| anyhow::anyhow!("Argon2 key derivation failed: {e}"))?;
 
         Ok(key)
     }
@@ -212,8 +212,10 @@ impl ConfigManager {
             .decrypt(nonce, &encrypted[12..])
             .map_err(|_| anyhow::anyhow!("Decryption failed — wrong password or corrupted file"))?;
 
-        let config: DaemonConfig =
-            toml::from_slice(&plaintext).context("Failed to deserialize config")?;
+        let config: DaemonConfig = toml::from_str(
+            std::str::from_utf8(&plaintext).context("Config is not valid UTF-8")?,
+        )
+        .context("Failed to deserialize config")?;
 
         Ok(config)
     }

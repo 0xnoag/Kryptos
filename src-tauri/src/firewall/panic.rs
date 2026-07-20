@@ -258,7 +258,7 @@ impl PanicEngine {
 
         for (cmd_name, args) in &commands {
             let mut cmd = Command::new(cmd_name);
-            cmd.args(args);
+            cmd.args(*args);
             match run_command_logged(&mut cmd, &format!("{cmd_name} flush")).await {
                 Ok(_) => info!("DNS cache flushed via {cmd_name}"),
                 Err(e) => warn!("DNS flush method {cmd_name} failed: {e} (this is expected if the service is not installed)"),
