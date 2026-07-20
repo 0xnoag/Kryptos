@@ -25,8 +25,6 @@ struct Cli {
     #[arg(short, long, default_value = "/etc/endpoint-privacy")]
     config_dir: String,
 
-    // Password is read from EPS_PASSWORD env var or config_dir/password file only.
-    // Never from CLI args (prevents /proc/PID/cmdline leakage).
     #[arg(short, long, help = "Run in foreground (default: daemonize)")]
     foreground: bool,
 
@@ -41,6 +39,13 @@ struct Cli {
         help = "Fail if any binary hash is missing from .hashes file (implies --verify-signatures)"
     )]
     strict_verification: bool,
+
+    #[arg(
+        long = "http-port",
+        default_value = "8080",
+        help = "Port for the web UI HTTP server"
+    )]
+    http_port: u16,
 }
 
 #[tokio::main]
@@ -66,7 +71,6 @@ async fn main() -> anyhow::Result<()> {
     let strict = cli.strict_verification;
     let do_verify = cli.strict_verification || cli.verify_signatures;
 
-    // Pre-flight: verify all configured binary hashes before starting daemon
     let hashes_path = std::path::Path::new(&cli.config_dir).join(".hashes");
     let _verifier = if do_verify {
         match security::verify::BinaryVerifier::from_hashes_file(&hashes_path, strict) {
@@ -100,27 +104,44 @@ async fn main() -> anyhow::Result<()> {
     let daemon =
         endpoint_privacy_suite::EndpointPrivacyDaemon::new(&cli.config_dir, &password, strict)
             .await?;
-    // Zeroize password after use
     drop(password);
 
     let pm = daemon.process_manager.clone();
     let pe = daemon.panic_engine.clone();
     let kill_on_exit = daemon.config.kill_switch_on_exit;
 
-    // Create shutdown channel for graceful IPC-initiated shutdown
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
 
-    // Start IPC server with cloned Arcs (no outer lock)
+    // Start IPC server
     let ipc = daemon::ipc::IpcServer::new(
         &daemon.config.ipc_socket_path,
         pm.clone(),
         pe.clone(),
-        shutdown_tx,
+        shutdown_tx.clone(),
     )?;
 
     let ipc_handle = tokio::spawn(async move {
         if let Err(e) = ipc.run().await {
             tracing::error!("IPC server error: {e}");
+        }
+    });
+
+    // Generate UI authentication token
+    use rand::distributions::{Alphanumeric, DistString};
+    let ui_token = Alphanumeric.sample_string(&mut rand::thread_rng(), 32);
+    tracing::debug!("UI token generated");
+
+    // Start HTTP API server for web UI (read-only status + static files)
+    let http_state = daemon::http_api::HttpApiState {
+        process_manager: pm.clone(),
+        panic_engine: pe.clone(),
+        ui_token,
+        http_port: cli.http_port,
+    };
+
+    let http_handle = tokio::spawn(async move {
+        if let Err(e) = daemon::http_api::run_http_server(http_state).await {
+            tracing::error!("HTTP server error: {e}");
         }
     });
 
@@ -130,11 +151,12 @@ async fn main() -> anyhow::Result<()> {
     }
 
     tracing::info!(
-        "Endpoint Privacy Suite daemon running (foreground: {})",
-        cli.foreground
+        "Endpoint Privacy Suite daemon running (foreground: {}, web UI: http://localhost:{})",
+        cli.foreground,
+        cli.http_port
     );
 
-    // Wait for shutdown signal (SIGINT, SIGTERM, IPC shutdown request, or IPC exit)
+    // Wait for shutdown signal (SIGINT, SIGTERM, IPC shutdown request, HTTP shutdown, or server exit)
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {
             tracing::info!("Received Ctrl+C (SIGINT) shutdown signal");
@@ -144,13 +166,16 @@ async fn main() -> anyhow::Result<()> {
         }
         _ = async { shutdown_rx.changed().await } => {
             if *shutdown_rx.borrow() {
-                tracing::info!("Received IPC Shutdown request, initiating graceful shutdown");
+                tracing::info!("Received Shutdown request via API/IPC, initiating graceful shutdown");
             } else {
                 tracing::info!("Shutdown channel closed, initiating shutdown");
             }
         }
         _ = async { ipc_handle.await.unwrap_or(()) } => {
             tracing::info!("IPC server exited, shutting down");
+        }
+        _ = async { http_handle.await.unwrap_or(()) } => {
+            tracing::info!("HTTP server exited, shutting down");
         }
     }
 
@@ -172,8 +197,6 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Load encryption password from EPS_PASSWORD env var or {config_dir}/password file.
-/// Never from CLI args to avoid /proc/PID/cmdline leakage.
 fn load_password(config_dir: &str) -> anyhow::Result<String> {
     if let Ok(pw) = std::env::var("EPS_PASSWORD") {
         if !pw.is_empty() {

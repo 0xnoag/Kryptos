@@ -16,13 +16,13 @@ function formatUptime(secs: number): string {
 }
 
 export function Services() {
-  const { services, startService, stopService, restartService } = useDaemon();
+  const { services } = useDaemon();
 
   return (
     <div className="space-y-3 max-w-[1280px]">
       <div>
         <div className="page-title">SERVICES</div>
-        <div className="page-subtitle">PROCESS CONTROL // SERVICE MANAGEMENT</div>
+        <div className="page-subtitle">PROCESS STATUS // READ-ONLY MONITOR</div>
       </div>
 
       <table className="proc-table">
@@ -34,7 +34,6 @@ export function Services() {
             <th>UPTIME</th>
             <th>PID</th>
             <th>RESTARTS</th>
-            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -53,32 +52,6 @@ export function Services() {
                 <td className="text-[#6b7280]">{svc.uptime_secs > 0 ? formatUptime(svc.uptime_secs) : "-"}</td>
                 <td className="text-[#6b7280]">{svc.pid ?? "-"}</td>
                 <td className="text-[#6b7280]">{svc.restart_count > 0 ? svc.restart_count : "-"}</td>
-                <td className="text-right">
-                  {svc.status !== "Running" ? (
-                    <button
-                      onClick={() => startService(svc.name)}
-                      className="btn-primary"
-                      disabled={svc.status === "Starting" || svc.status === "Restarting"}
-                    >
-                      START
-                    </button>
-                  ) : (
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => restartService(svc.name)}
-                        className="btn-ghost"
-                      >
-                        RESTART
-                      </button>
-                      <button
-                        onClick={() => stopService(svc.name)}
-                        className="btn"
-                      >
-                        STOP
-                      </button>
-                    </div>
-                  )}
-                </td>
               </tr>
             );
           })}
@@ -92,7 +65,7 @@ export function Services() {
         </div>
       )}
 
-      {/* Process descriptions */}
+      {/* Service descriptions */}
       {services.length > 0 && (
         <div className="card">
           <div className="card-header">
@@ -110,6 +83,17 @@ export function Services() {
           </div>
         </div>
       )}
+
+      {/* CLI notice */}
+      <div className="card border-[#f59e0b]/20">
+        <div className="card-header">
+          <span className="card-title text-[#f59e0b]">CONTROL</span>
+        </div>
+        <div className="mt-2 text-[9px] font-mono text-[#6b7280] leading-relaxed">
+          Service start/stop/restart is available via the CLI tool only.
+          Connect to the daemon's Unix socket at <code className="text-[#4ade80]">/run/endpoint-privacy/ipc.sock</code>.
+        </div>
+      </div>
     </div>
   );
 }

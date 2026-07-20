@@ -1,6 +1,6 @@
 # Kryptos — Endpoint Privacy Suite
 
-**Kryptos** is a high-performance, low-level endpoint privacy daemon for Kali Linux that integrates Tor (with obfs4), AmneziaWG (obfuscated WireGuard), and Syncthing into a unified security stack with a kernel-level kill switch, intelligent split routing, and a desktop UI built on Tauri + React.
+**Kryptos** is a high-performance, low-level endpoint privacy daemon for Kali Linux that integrates Tor (with obfs4), AmneziaWG (obfuscated WireGuard), and Syncthing into a unified security stack with a kernel-level kill switch, intelligent split routing, and a browser-based web UI.
 
 ---
 
@@ -8,35 +8,35 @@
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    Tauri Desktop UI                      │
-│  (React + Vite + TailwindCSS → Webview)                 │
+│              Browser (Web UI — React + Vite)             │
+│           http://localhost:8080 (read-only)              │
 └──────────────────────┬──────────────────────────────────┘
-                       │ Unix Socket (JSON-RPC)
+                       │ HTTP (Bearer token + Origin check)
 ┌──────────────────────▼──────────────────────────────────┐
-│               Rust Daemon (tokio async)                   │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐  │
-│  │   Tor    │  │ obfs4    │  │AmneziaWG │  │Syncth. │  │
-│  │ + obfs4  │  │ Bridge   │  │ Tunnel   │  │  P2P   │  │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └──┬─────┘  │
-│       │              │             │           │         │
-│  ┌────▼──────────────▼─────────────▼───────────▼──────┐ │
-│  │           Process Lifecycle Manager                │ │
-│  │   (auto-restart, health monitoring, max limits)    │ │
-│  └────────────────────────┬──────────────────────────┘ │
-│                           │                             │
-│  ┌────────────────────────▼──────────────────────────┐ │
-│  │            nftables Kill Switch                    │ │
-│  │   Soft │ Hard │ Nuclear (zero-leak guarantee)     │ │
-│  └───────────────────────────────────────────────────┘ │
-│                           │                             │
-│  ┌────────────────────────▼──────────────────────────┐ │
-│  │   Traffic Classifier (Split Routing)               │ │
-│   │   TCP → Tor · UDP → AmneziaWG · DNS → Local UDP  │ │
+│                 Rust Daemon (tokio async)                 │
+│  ┌──────────┐  ┌──────────┐  ┌─────────────┐           │
+│  │  axum    │  │  Unix    │  │ Shared      │           │
+│  │ HTTP API │  │ Socket   │  │ Business    │           │
+│  │(read-only)│  │IPC (full)│  │ Logic       │           │
+│  └────┬─────┘  └────┬─────┘  └──────┬──────┘           │
+│       │              │               │                   │
+│  ┌────▼──────────────▼───────────────▼────────────────┐ │
+│  │  Process Manager  │  nftables Kill Switch          │ │
+│  │  Traffic Classifier  │  DNS Forwarder  │  Config   │ │
 │  └───────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 ```
 
 > **Security documentation**: See [THREAT_MODEL.md](THREAT_MODEL.md) for adversary scope and [SECURITY.md](SECURITY.md) for current privilege model, known limitations, and vulnerability reporting.
+
+## Security Model: HTTP API
+
+All state-changing operations (start/stop services, panic levels, shutdown) are exposed **only** via the Unix socket (`0700` permissions), never via HTTP. The HTTP API is **read-only by design**.
+
+- **Bearer token**: randomly generated per daemon start, delivered only via initial HTML response (`<meta name="api-token">`). Not recoverable via any API endpoint.
+- **Origin check**: defense-in-depth against browser-based DNS rebinding attacks. NOT a substitute for the Bearer token — a non-browser client can spoof Origin freely.
+- **Token lifetime**: no expiry. A daemon restart invalidates all previous tokens; the frontend auto-reloads on HTTP 401.
+- **127.0.0.1 bind only**: the HTTP server never binds to 0.0.0.0.
 
 ## Current Status / Known Issues
 
@@ -46,7 +46,7 @@
 | Panic engine | ✅ Implemented | Real state tracking, interface allowlist |
 | Process lifecycle management | ✅ Implemented | Exponential backoff, max-restart circuit breaker |
 | Encrypted config | ✅ Implemented | AES-256-GCM + Argon2id, zeroized on drop |
-| Unix socket IPC | ✅ Implemented | `0o700` permissions, input validation |
+| Unix socket IPC | ✅ Implemented | `0700` permissions, sole mutation channel |
 | Tor service management | ✅ Implemented | |
 | AmneziaWG service management | ✅ Implemented | |
 | obfs4proxy management | ✅ Implemented | |
@@ -54,7 +54,7 @@
 | MAC spoofing | ✅ Implemented | Locally-administered bit set correctly |
 | Traffic classifier | ✅ Implemented | Informational only — enforcement via nftables |
 | Routing / sysctl helpers | ✅ Implemented | IPv6 blocking, policy routing |
-| React/Tauri UI | ✅ Implemented | 5 pages with real-time polling |
+| Browser web UI | ✅ Implemented | Read-only, 5 pages, 2s polling, Bearer auth |
 | DNS encryption (DoH/DoT) | ❌ Not implemented | DNS is **plain UDP** — known leak. Config has `doh_url` field reserved for future use. |
 | nftables rule persistence across reboot | ❌ Not implemented | Rules survive daemon crash (kernel state) but not reboot. Requires systemd `ExecStartPre` or a oneshot service. |
 | Privilege separation | ❌ Not implemented | Daemon runs entirely as root. See SECURITY.md for proposed split. |
@@ -77,10 +77,9 @@
 
 ### Stack
 |-------|-----------|
-| Backend | Rust (tokio async, nix, libc) |
+| Backend | Rust (tokio async, axum, nix, libc) |
 | Frontend | React 18 + Vite + TailwindCSS |
-| Desktop | Tauri 2 (Rust-wrapped webview) |
-| Messaging | Unix Socket JSON-RPC (IPC) |
+| API | Axum HTTP (read-only) + Unix socket JSON-RPC (mutations) |
 | Firewall | nftables via netlink (`nft -f -`) |
 | Config Encryption | AES-256-GCM + Argon2 KDF |
 | Core Engines | tor, obfs4proxy, amneziawg-wireguard, syncthing |
@@ -140,8 +139,8 @@ All settings stored encrypted at rest:
 - Excludes loopback and user-specified interfaces
 - Uses `ip link` commands to apply
 
-### 7. Secure IPC (`daemon/ipc.rs`)
-JSON-RPC over Unix socket at `/run/endpoint-privacy/ipc.sock`:
+### 7. Unix Socket IPC (`daemon/ipc.rs`) — Mutation Channel
+JSON-RPC over Unix socket at `/run/endpoint-privacy/ipc.sock` (`0700` permissions):
 
 | Request | Description |
 |---------|-------------|
@@ -152,6 +151,16 @@ JSON-RPC over Unix socket at `/run/endpoint-privacy/ipc.sock`:
 | `SetPanicLevel` | off / soft / hard / nuclear |
 | `GetPanicStatus` | Current panic state |
 | `Shutdown` | Graceful daemon shutdown |
+
+### 8. HTTP API (`daemon/http_api.rs`) — Read-Only Channel
+REST over HTTP on `127.0.0.1:PORT` (default 8080), Bearer token required:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Serves web UI (index.html with token injected) |
+| `/api/status` | GET | All services + panic status (JSON) |
+| `/api/panic` | GET | Current panic status (JSON) |
+| `/*` | GET | SPA fallback (static files or index.html) |
 
 ---
 
@@ -180,7 +189,7 @@ sudo apt install -y nodejs npm
 git clone https://github.com/0xnoag/Kryptos.git
 cd Kryptos
 
-# Build the daemon
+# Build the daemon (no GTK/WebKit dependencies required)
 cd src-tauri
 cargo build --release
 cd ..
@@ -188,58 +197,43 @@ cd ..
 # Build the frontend
 npm install
 npm run build
-
-# Or build the full Tauri desktop app
-npx tauri build
 ```
 
-### Deploy Daemon
+### Run
 
 ```bash
-# Create config directory
-sudo mkdir -p /etc/endpoint-privacy
+# Start daemon (root required for nftables + routing)
+sudo EPS_PASSWORD="your-strong-password" ./src-tauri/target/release/endpoint-privacy-suite
 
-# Run daemon (root required for nftables + routing)
-sudo EPS_PASSWORD="your-strong-password" ./target/release/endpoint-privacy-daemon
-
-# Or as a systemd service
-sudo cp ./contrib/endpoint-privacy.service /etc/systemd/system/
-sudo systemctl enable --now endpoint-privacy
+# Open web UI in browser
+# http://localhost:8080
 ```
-
----
-
-## Usage
 
 ### CLI Flags
 
 ```bash
-endpoint-privacy-daemon --help
+endpoint-privacy-suite --help
 
-Usage: endpoint-privacy-daemon [OPTIONS] --password <PASSWORD>
+Usage: endpoint-privacy-suite [OPTIONS]
 
 Options:
-  -c, --config-dir <DIR>   Config directory [default: /etc/endpoint-privacy]
-  -p, --password <PASS>    Encryption password (also via EPS_PASSWORD env)
-  -f, --foreground         Run in foreground
-  -h, --help               Print help
+  -c, --config-dir <DIR>      Config directory [default: /etc/endpoint-privacy]
+  -f, --foreground             Run in foreground
+      --verify-signatures      Verify SHA-256 hashes of external binaries
+      --strict-verification    Fail if any binary hash is missing
+      --http-port <PORT>       Web UI port [default: 8080]
+  -h, --help                   Print help
 ```
 
-### Desktop UI
-
-```bash
-# Via Tauri
-npx tauri dev
-```
+### Web UI
 
 The UI provides:
 - Real-time service status with auto-refresh (2s polling)
-- Start / stop / restart controls for each engine
-- One-click panic level activation
 - Visual nftables ruleset display
 - Split routing classifier overview
-- MAC spoofing trigger
 - Configuration viewer
+
+> **Note**: Service start/stop/restart and panic level changes are **not available** in the web UI. These operations require the CLI tool connecting to the Unix socket at `/run/endpoint-privacy/ipc.sock`.
 
 ---
 
@@ -255,7 +249,8 @@ src-tauri/src/
 ├── daemon/
 │   ├── engine.rs            # Process lifecycle manager
 │   ├── config.rs            # Encrypted config (AES-256-GCM + Argon2)
-│   └── ipc.rs               # Unix socket JSON-RPC server
+│   ├── ipc.rs               # Unix socket JSON-RPC server (mutations)
+│   └── http_api.rs          # Axum HTTP server (read-only + static files)
 ├── network/
 │   ├── classifier.rs        # TCP/UDP/DNS traffic classifier
 │   ├── dns.rs               # Local DNS forwarder (plain UDP, DoH planned)
@@ -270,13 +265,13 @@ src/
 ├── App.tsx                  # Router (5 views)
 ├── components/Layout.tsx    # Sidebar navigation
 ├── pages/
-│   ├── Dashboard.tsx        # Status cards + panic controls
-│   ├── Services.tsx         # Service management
-│   ├── Firewall.tsx         # Kill switch panel
+│   ├── Dashboard.tsx        # Status cards
+│   ├── Services.tsx         # Service status (read-only)
+│   ├── Firewall.tsx         # Kill switch display (read-only)
 │   ├── Network.tsx          # Split routing display
 │   └── Settings.tsx         # Configuration viewer
 └── lib/
-    ├── ipc.ts               # Tauri IPC bridge
+    ├── ipc.ts               # HTTP fetch to axum API
     └── daemon-context.tsx   # React state + polling
 ```
 
@@ -290,8 +285,9 @@ src/
 4. **No Shell Injection** — All system commands use `Command::new()` with pre-split args, never `sh -c`
 5. **Encrypted at Rest** — All config files use AES-256-GCM + Argon2id with explicit parameters. Keys are zeroized on drop.
 6. **Zero-Leak Guarantee** — Kill switch installs nftables rules before any tunnel is brought up. Rules survive daemon crash (kernel state persists).
-7. **Secure IPC** — Unix socket with `0700` permissions, input validation on payload size and character whitelist.
-8. **DNS is NOT encrypted** — Queries are forwarded as plain UDP. DoH is planned.
+7. **Secure IPC** — Unix socket with `0700` permissions. Sole mutation channel. All state-changing operations are gated here.
+8. **Read-Only HTTP API** — Axum server bound to `127.0.0.1`, Bearer token authentication, Origin header check (DNS rebinding protection). No mutation endpoints exposed.
+9. **DNS is NOT encrypted** — Queries are forwarded as plain UDP. DoH is planned.
 
 ---
 

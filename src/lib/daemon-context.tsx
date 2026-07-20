@@ -25,10 +25,6 @@ interface DaemonState {
 }
 
 interface DaemonContextType extends DaemonState {
-  startService: (name: string) => Promise<void>;
-  stopService: (name: string) => Promise<void>;
-  restartService: (name: string) => Promise<void>;
-  setPanicLevel: (level: string, confirmation?: string) => Promise<void>;
   refresh: () => Promise<void>;
 }
 
@@ -74,46 +70,10 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
     });
   }, [refresh]);
 
-  const startService = useCallback(async (name: string) => {
-    await ipc.send({ type: "StartService", payload: { service: name } });
-    await refresh();
-  }, [refresh]);
-
-  const stopService = useCallback(async (name: string) => {
-    await ipc.send({ type: "StopService", payload: { service: name } });
-    await refresh();
-  }, [refresh]);
-
-  const restartService = useCallback(async (name: string) => {
-    await ipc.send({ type: "RestartService", payload: { service: name } });
-    await refresh();
-  }, [refresh]);
-
-  const setPanicLevel = useCallback(async (level: string, confirmation?: string) => {
-    const payload: Record<string, unknown> = { level };
-    if (confirmation) {
-      payload.confirmation = confirmation;
-    }
-    const response = await ipc.send({
-      type: "SetPanicLevel",
-      payload,
-    });
-    if (response.type === "PanicStatus") {
-      setState((s) => ({
-        ...s,
-        panic: response.payload as PanicStatus,
-      }));
-    }
-  }, []);
-
   return (
     <DaemonContext.Provider
       value={{
         ...state,
-        startService,
-        stopService,
-        restartService,
-        setPanicLevel,
         refresh,
       }}
     >

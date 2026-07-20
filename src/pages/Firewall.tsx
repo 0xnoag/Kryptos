@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useDaemon } from "../lib/daemon-context";
 
 const LEVELS = [
@@ -8,40 +7,17 @@ const LEVELS = [
   { key: "Nuclear", label: "NUCLEAR", desc: "Complete isolation: loopback only. Interfaces down. Caches purged.", color: "#ef4444", dot: "indicator-critical" },
 ] as const;
 
-const NUCLEAR_CONFIRM = "CONFIRM_NUCLEAR_I_AM_SURE";
-
 export function Firewall() {
-  const { panic, setPanicLevel } = useDaemon();
-  const [confirmText, setConfirmText] = useState("");
+  const { panic } = useDaemon();
 
   const currentKey = panic?.level ?? "Off";
   const current = LEVELS.find((l) => l.key === currentKey) ?? LEVELS[0];
-
-  const [pendingNuclear, setPendingNuclear] = useState(false);
-
-  const handleSet = (key: string) => {
-    if (key.toLowerCase() === "nuclear") {
-      if (currentKey === "Nuclear") return; // already active
-      setPendingNuclear(true);
-      return;
-    }
-    setPendingNuclear(false);
-    setConfirmText("");
-    setPanicLevel(key.toLowerCase());
-  };
-
-  const confirmNuclear = () => {
-    if (confirmText !== NUCLEAR_CONFIRM) return;
-    setPanicLevel("nuclear", NUCLEAR_CONFIRM);
-    setConfirmText("");
-    setPendingNuclear(false);
-  };
 
   return (
     <div className="space-y-3 max-w-[1280px]">
       <div>
         <div className="page-title">FIREWALL</div>
-        <div className="page-subtitle">KILL SWITCH // NFTABLES RULE MANAGEMENT</div>
+        <div className="page-subtitle">KILL SWITCH // NFTABLES RULE MANAGEMENT // READ-ONLY</div>
       </div>
 
       {/* Current state */}
@@ -63,15 +39,13 @@ export function Firewall() {
         )}
       </div>
 
-      {/* Level selection */}
+      {/* Level display (read-only) */}
       <div className="grid grid-cols-4 gap-2">
         {LEVELS.map((level) => {
           const isActive = currentKey === level.key;
           return (
-            <button
+            <div
               key={level.key}
-              onClick={() => handleSet(level.key)}
-              disabled={isActive}
               className={`level-btn ${isActive ? "level-btn-active" : ""}`}
             >
               <div className="flex items-center gap-1.5">
@@ -83,57 +57,21 @@ export function Firewall() {
               <div className="text-[8px] font-mono text-[#6b7280] leading-relaxed">
                 {level.desc}
               </div>
-            </button>
+            </div>
           );
         })}
       </div>
 
-      {/* Nuclear confirmation prompt */}
-      {(pendingNuclear || currentKey === "Nuclear") && (
-        <div className="card border-[#ef4444]/30">
-          <div className="card-header">
-            <span className="indicator-critical" />
-            <span className="card-title text-[#ef4444]">
-              {pendingNuclear ? "CONFIRM NUCLEAR ACTIVATION" : "NUCLEAR IS ACTIVE"}
-            </span>
-          </div>
-          <div className="mt-2 text-[9px] font-mono text-[#6b7280]">
-            {pendingNuclear
-              ? "Type the confirmation string to activate Nuclear mode:"
-              : "Type the confirmation string and click DECONFIRM to return to OFF:"}
-          </div>
-          <div className="mt-1 flex gap-2">
-            <input
-              type="text"
-              value={confirmText}
-              onChange={(e) => setConfirmText(e.target.value)}
-              placeholder={NUCLEAR_CONFIRM}
-              className="flex-1 px-2 py-1 text-[11px] font-mono border border-[#2a2f3f]"
-              style={{ background: "#111318", color: "#c8ccd4" }}
-            />
-            {pendingNuclear ? (
-              <button onClick={confirmNuclear} className="btn-primary" disabled={confirmText !== NUCLEAR_CONFIRM}>
-                CONFIRM
-              </button>
-            ) : (
-              <button
-                onClick={() => { setPanicLevel("off"); setConfirmText(""); setPendingNuclear(false); }}
-                className="btn"
-                disabled={confirmText !== NUCLEAR_CONFIRM}
-              >
-                DECONFIRM
-              </button>
-            )}
-          </div>
-          {pendingNuclear && (
-            <div className="mt-1 flex gap-1">
-              <button onClick={() => setPendingNuclear(false)} className="btn-ghost">
-                CANCEL
-              </button>
-            </div>
-          )}
+      {/* CLI notice */}
+      <div className="card border-[#f59e0b]/20">
+        <div className="card-header">
+          <span className="card-title text-[#f59e0b]">CONTROL</span>
         </div>
-      )}
+        <div className="mt-2 text-[9px] font-mono text-[#6b7280] leading-relaxed">
+          Panic level changes (Soft, Hard, Nuclear) are available via the CLI tool only.
+          Connect to the daemon's Unix socket at <code className="text-[#4ade80]">/run/endpoint-privacy/ipc.sock</code>.
+        </div>
+      </div>
 
       {/* nftables chains */}
       <div className="card">

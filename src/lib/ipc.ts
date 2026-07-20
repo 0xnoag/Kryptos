@@ -1,6 +1,11 @@
+function getToken(): string {
+  const meta = document.querySelector<HTMLMetaElement>('meta[name="api-token"]');
+  return meta?.content ?? "";
+}
+
 interface IpcRequest {
   type: string;
-  payload?: unknown;
+  payload?: Record<string, unknown>;
 }
 
 interface IpcResponse {
@@ -8,53 +13,47 @@ interface IpcResponse {
   payload?: unknown;
 }
 
+async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getToken();
+  const res = await fetch(path, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
+    },
+  });
+  if (res.status === 401) {
+    // Token expired (daemon restarted) — reload page to get fresh token
+    window.location.reload();
+    // never returns
+    throw new Error("Token expired, reloading");
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || res.statusText);
+  }
+  return res.json();
+}
+
 class IpcClient {
-  private socket: WebSocket | null = null;
-  private pending = new Map<string, {
-    resolve: (v: IpcResponse) => void;
-    reject: (e: Error) => void;
-    timeout: ReturnType<typeof setTimeout>;
-  }>();
-
-  async connect(_path?: string): Promise<void> {
-    if (this.socket?.readyState === WebSocket.OPEN) return;
-
-    if (window.__TAURI__) {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke<IpcResponse>("ipc_request", {
-        request: { type: "GetStatus" }
-      });
-    }
+  async connect(): Promise<void> {
+    // HTTP client is always connected
   }
 
   async send(request: IpcRequest): Promise<IpcResponse> {
-    if (window.__TAURI__) {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const response = await invoke<IpcResponse>("ipc_request", {
-        request,
-      });
-      return response;
+    switch (request.type) {
+      case "GetStatus": {
+        const data = await apiFetch<{ services: unknown; panic: unknown }>("/api/status");
+        return { type: "Status", payload: data };
+      }
+      default:
+        throw new Error(`Unknown IPC request type: ${request.type}`);
     }
-
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      throw new Error("IPC not connected");
-    }
-
-    return new Promise((resolve, reject) => {
-      const id = crypto.randomUUID();
-      const timeout = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error("IPC request timed out"));
-      }, 5000);
-
-      this.pending.set(id, { resolve, reject, timeout });
-      this.socket!.send(JSON.stringify({ id, ...request }));
-    });
   }
 
   disconnect() {
-    this.socket?.close();
-    this.socket = null;
+    // no-op
   }
 }
 

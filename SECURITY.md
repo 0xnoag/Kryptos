@@ -131,7 +131,8 @@ You can expect:
 
 - **Full Rust daemon**: This is a pre-release codebase that has not undergone a third-party security audit.
 - **AmneziaWG integration**: The `awg` binary is from a third-party project and has its own security posture.
-- **Tauri IPC bridge**: The frontend-to-Tauri IPC layer (invoke-based) has not been reviewed for command injection or privilege escalation.
+- **HTTP API (axum)**: The read-only HTTP API and its Bearer token authentication have not been formally audited. The implementation follows standard axum patterns but may contain logic errors.
+- **Unix socket JSON-RPC**: Parameter validation exists but the full IPC surface has not been fuzz-tested.
 - **Encrypted config**: The AES-256-GCM + Argon2 scheme follows best practices but has not been formally verified.
 
 ## Secure Deployment Checklist
@@ -140,5 +141,6 @@ You can expect:
 - [ ] Set `EPS_PASSWORD` via a systemd credential (inaccessible to unprivileged users) rather than an environment variable
 - [ ] Restrict `/etc/endpoint-privacy/` to `root:root 0700`
 - [ ] Restrict `/run/endpoint-privacy/` to `root:root 0700`
+- [ ] Confirm HTTP API binds to `127.0.0.1` only (default) — never expose to `0.0.0.0`
 - [ ] Use `logrotate` for daemon logs with `create 0600 root root`
 - [ ] Pin `tor`, `obfs4proxy`, `amneziawg`, `syncthing` to specific, known-good versions via apt pinning
