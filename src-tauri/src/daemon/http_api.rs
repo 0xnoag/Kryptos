@@ -2,7 +2,7 @@ use std::sync::Arc;
 use axum::{
     Router,
     extract::{Request, State},
-    http::{header, StatusCode, Uri},
+    http::{header, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Json, Response},
     routing::get,
@@ -126,13 +126,13 @@ async fn handle_get_status(
     let pm = state.process_manager.read().await;
     let services = pm.all_status().await;
     let pe = state.panic_engine.read().await;
-    let panic = pe.status();
+    let panic = pe.status().await;
 
     Json(StatusResponse {
         services: services
             .into_iter()
             .map(|s| ServiceInfoJson {
-                name: s.name.to_string(),
+                name: s.name.display_name().to_string(),
                 status: service_status_str(&s.status).to_string(),
                 uptime_secs: s.uptime_secs,
                 restart_count: s.restart_count,
@@ -147,7 +147,7 @@ async fn handle_get_panic(
     State(state): State<HttpApiState>,
 ) -> Json<PanicStatus> {
     let pe = state.panic_engine.read().await;
-    Json(pe.status())
+    Json(pe.status().await)
 }
 
 async fn handle_index(
@@ -155,7 +155,7 @@ async fn handle_index(
     request: Request,
 ) -> Result<Response, (StatusCode, String)> {
     if let Err((code, json)) = check_origin(&request) {
-        return Err((code, json.error));
+        return Err((code, json.error.clone()));
     }
     let content = tokio::fs::read_to_string("../dist/index.html")
         .await
