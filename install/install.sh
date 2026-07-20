@@ -72,6 +72,9 @@ install -m 755 "$REPO_DIR/install/kryptos-launch.sh" "$WRAPPER_DEST"
 echo "Installing desktop entry -> $DESKTOP_DEST"
 install -m 644 "$REPO_DIR/install/kryptos.desktop" "$DESKTOP_DEST"
 
+# Wipe old config so daemon creates a fresh one with the new password
+rm -f "$CONFIG_DIR/config.enc"
+
 # Generate and save config encryption password (always, overwrites stale file)
 echo
 echo "=== Generating Config Encryption Password ==="

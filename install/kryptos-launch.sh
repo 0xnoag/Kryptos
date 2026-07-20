@@ -47,6 +47,15 @@ fi
 
 echo "Opening Kryptos web UI for user: $DESKTOP_USER"
 
+# Allow desktop user to connect to X server (needed when launched via sudo)
+xhost +SI:localuser:"$DESKTOP_USER" 2>/dev/null || true
+
+# Detect X display (fallback to :0)
+DISPLAY="${DISPLAY:-:0}"
+if [ -z "$XAUTHORITY" ] && [ -f "/home/$DESKTOP_USER/.Xauthority" ]; then
+    XAUTHORITY="/home/$DESKTOP_USER/.Xauthority"
+fi
+
 # Run chromium as the desktop user (NOT as root — root breaks GPU/X11)
 sudo -u "$DESKTOP_USER" DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" \
     chromium --app="$UI_URL" \
