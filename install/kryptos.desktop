@@ -1,9 +1,9 @@
 [Desktop Entry]
 Name=Kryptos
 Comment=Endpoint Privacy Suite — Tor + AmneziaWG + Syncthing kill-switch daemon
-Exec=/usr/local/bin/kryptos-launch
+Exec=sudo -E /usr/local/bin/kryptos-launch
 Icon=/opt/kryptos/icon.svg
-Terminal=false
+Terminal=true
 Type=Application
 Categories=Network;Security;
 StartupWMClass=kryptos

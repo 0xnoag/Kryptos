@@ -115,6 +115,6 @@ done
 
 echo
 echo "=== Installation complete ==="
-echo "Launch Kryptos from your desktop icon or application menu, or run: kryptos-launch"
+echo "Launch Kryptos from your desktop icon, or run: sudo kryptos-launch"
 echo "Password was saved to $ENV_DEST (root-only)"
 echo "Web UI: http://127.0.0.1:8080"
