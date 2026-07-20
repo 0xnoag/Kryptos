@@ -5,6 +5,7 @@ use aes_gcm::{
 use anyhow::Result;
 use argon2::{Argon2, Params as Argon2Params};
 use rand::RngCore;
+use zeroize::Zeroize;
 
 
 pub struct KeyDerivation;
