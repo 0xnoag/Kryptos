@@ -79,7 +79,11 @@ impl SecureCommand {
     }
 
     pub async fn execute_with_stdin(&self, data: &str) -> Result<(String, String)> {
-        debug!("Executing with stdin: {} {}", self.program, self.args.join(" "));
+        debug!(
+            "Executing with stdin: {} {}",
+            self.program,
+            self.args.join(" ")
+        );
         let mut cmd = self.build();
 
         let mut child = cmd.spawn().context("Failed to spawn command")?;
@@ -90,9 +94,12 @@ impl SecureCommand {
         }
 
         let output = if let Some(secs) = self.timeout_secs {
-            tokio::time::timeout(std::time::Duration::from_secs(secs), child.wait_with_output())
-                .await
-                .context("Command timed out")??
+            tokio::time::timeout(
+                std::time::Duration::from_secs(secs),
+                child.wait_with_output(),
+            )
+            .await
+            .context("Command timed out")??
         } else {
             child.wait_with_output().await?
         };
@@ -131,8 +138,11 @@ impl SecureCommand {
             }
         }
         if !missing.is_empty() {
-            anyhow::bail!("Missing required binaries: {}. Install with: apt install {}", 
-                missing.join(", "), missing.join(" "));
+            anyhow::bail!(
+                "Missing required binaries: {}. Install with: apt install {}",
+                missing.join(", "),
+                missing.join(" ")
+            );
         }
         Ok(())
     }

@@ -64,8 +64,11 @@ impl MacSpoofer {
             .context("Failed to bring interface down")?;
 
         if !bring_down.status.success() {
-            warn!("Failed to bring {} down: {}", iface,
-                String::from_utf8_lossy(&bring_down.stderr));
+            warn!(
+                "Failed to bring {} down: {}",
+                iface,
+                String::from_utf8_lossy(&bring_down.stderr)
+            );
         }
 
         let set_mac = Command::new("ip")
@@ -75,14 +78,20 @@ impl MacSpoofer {
             .context("Failed to set MAC address")?;
 
         if !set_mac.status.success() {
-            warn!("Failed to set MAC on {}: {}", iface,
-                String::from_utf8_lossy(&set_mac.stderr));
+            warn!(
+                "Failed to set MAC on {}: {}",
+                iface,
+                String::from_utf8_lossy(&set_mac.stderr)
+            );
             let _ = Command::new("ip")
                 .args(["link", "set", "dev", iface, "up"])
                 .output()
                 .await;
-            anyhow::bail!("Failed to spoof MAC on {}: {}", iface,
-                String::from_utf8_lossy(&set_mac.stderr));
+            anyhow::bail!(
+                "Failed to spoof MAC on {}: {}",
+                iface,
+                String::from_utf8_lossy(&set_mac.stderr)
+            );
         }
 
         let bring_up = Command::new("ip")
@@ -114,15 +123,34 @@ impl MacSpoofer {
     }
 
     pub async fn restore_interface_original(iface: &str) -> Result<()> {
-        let output = Command::new("ethtool")
-            .args(["-P", iface])
-            .output()
-            .await;
-
-        if let Ok(output) = output {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            if let Some(mac) = stdout.split_whitespace().last() {
-                Self::spoof_interface(iface, mac).await?;
+        match Command::new("ethtool").args(["-P", iface]).output().await {
+            Ok(output) if output.status.success() => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if let Some(mac) = stdout.split_whitespace().last() {
+                    if mac.len() == 17 && mac.chars().filter(|&c| c == ':').count() == 5 {
+                        Self::spoof_interface(iface, mac).await?;
+                    } else {
+                        warn!(
+                            "Could not parse permanent MAC from ethtool output for {}: '{}'",
+                            iface,
+                            stdout.trim()
+                        );
+                    }
+                }
+            }
+            Ok(output) => {
+                warn!(
+                    "ethtool -P {} failed (exit: {}): {}",
+                    iface,
+                    output.status,
+                    String::from_utf8_lossy(&output.stderr).trim()
+                );
+            }
+            Err(e) => {
+                warn!(
+                    "ethtool not available, cannot restore MAC for {}: {e}",
+                    iface
+                );
             }
         }
         Ok(())

@@ -1,86 +1,109 @@
-import { Outlet, NavLink, useLocation } from "react-router-dom";
+import { Outlet, NavLink } from "react-router-dom";
 import { useDaemon } from "../lib/daemon-context";
-import {
-  Shield,
-  Activity,
-  Wifi,
-  Settings,
-  Server,
-  AlertTriangle,
-} from "lucide-react";
+import { Activity, Radio, Gauge, Route, Terminal } from "lucide-react";
 
 const navItems = [
-  { to: "/", icon: Shield, label: "Dashboard" },
-  { to: "/services", icon: Server, label: "Services" },
-  { to: "/firewall", icon: AlertTriangle, label: "Firewall" },
-  { to: "/network", icon: Wifi, label: "Network" },
-  { to: "/settings", icon: Settings, label: "Settings" },
+  { to: "/", icon: Gauge, label: "Dashboard" },
+  { to: "/services", icon: Radio, label: "Services" },
+  { to: "/firewall", icon: Activity, label: "Firewall" },
+  { to: "/network", icon: Route, label: "Network" },
+  { to: "/settings", icon: Terminal, label: "Settings" },
 ];
 
 export function Layout() {
-  const { connected, panic } = useDaemon();
+  const { connected, panic, services, error } = useDaemon();
+
+  const runningCount = services.filter((s) => s.status === "Running").length;
+  const totalCount = services.length;
+  const panicLevel = panic?.level ?? "OFF";
+
+  let statusIndicator = "indicator-off";
+  let statusLabel = "DISCONNECTED";
+  if (connected) {
+    if (panicLevel === "NUCLEAR") {
+      statusIndicator = "indicator-critical";
+      statusLabel = "NUCLEAR";
+    } else if (panicLevel === "HARD" || panicLevel === "SOFT") {
+      statusIndicator = "indicator-warn";
+      statusLabel = `${panicLevel} KS`;
+    } else if (runningCount > 0) {
+      statusIndicator = "indicator-ok";
+      statusLabel = `${runningCount}/${totalCount}`;
+    } else {
+      statusIndicator = "indicator-off";
+      statusLabel = "IDLE";
+    }
+  } else if (error) {
+    statusIndicator = "indicator-critical";
+    statusLabel = "ERR";
+  }
 
   return (
-    <div className="min-h-screen bg-gray-950 flex">
-      <aside className="w-64 bg-gray-900 border-r border-gray-800 flex flex-col">
-        <div className="p-6 border-b border-gray-800">
-          <div className="flex items-center gap-3">
-            <Shield className="w-8 h-8 text-privacy-500" />
-            <div>
-              <h1 className="text-lg font-bold text-white tracking-tight">
-                Privacy Suite
-              </h1>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span
-                  className={`w-2 h-2 rounded-full ${
-                    connected ? "bg-privacy-500" : "bg-danger-500"
-                  }`}
-                />
-                <span className="text-xs text-gray-500">
-                  {connected ? "Daemon Connected" : "Disconnected"}
-                </span>
-              </div>
-            </div>
-          </div>
+    <div className="min-h-screen flex flex-col" style={{ background: "#0a0b0e" }}>
+      {/* Classification banner */}
+      <div className="classification">
+        <span>TOP SECRET // ENDPOINT PRIVACY // KRYPTOS</span>
+      </div>
+
+      {/* Status bar */}
+      <div className="status-bar">
+        <span className="font-mono text-[10px] text-[#4ade80] tracking-widest uppercase">
+          KRYPTOS
+        </span>
+        <span className="text-[#2a2f3f]">|</span>
+        <div className="status-bar-item">
+          <span className={statusIndicator} />
+          <span>{statusLabel}</span>
         </div>
-
-        <nav className="flex-1 p-4 space-y-1">
-          {navItems.map(({ to, icon: Icon, label }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === "/"}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-4 py-2.5 rounded-lg transition-colors ${
-                  isActive
-                    ? "bg-privacy-600/20 text-privacy-400 border border-privacy-600/30"
-                    : "text-gray-400 hover:text-gray-200 hover:bg-gray-800"
-                }`
-              }
-            >
-              <Icon className="w-5 h-5" />
-              <span className="font-medium">{label}</span>
-            </NavLink>
-          ))}
-        </nav>
-
-        {panic && panic.kill_switch_active && (
-          <div className="p-4 border-t border-danger-800 bg-danger-900/30">
-            <div className="flex items-center gap-2 text-danger-400">
-              <AlertTriangle className="w-4 h-4" />
-              <span className="text-xs font-medium uppercase tracking-wider">
-                Panic: {panic.level}
-              </span>
-            </div>
+        {panic?.kill_switch_active && (
+          <div className="status-bar-item">
+            <span className="indicator-critical" />
+            <span className="text-[#ef4444]">KS:{panicLevel}</span>
           </div>
         )}
-      </aside>
-
-      <main className="flex-1 overflow-auto">
-        <div className="p-8">
-          <Outlet />
+        <div className="ml-auto flex items-center gap-3 text-[#6b7280]">
+          <span className="text-[9px] font-mono">
+            {runningCount}/{totalCount} svc
+          </span>
+          <span className="text-[9px] font-mono">
+            {new Date().toLocaleTimeString()}
+          </span>
         </div>
-      </main>
+      </div>
+
+      {/* Body */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar */}
+        <aside className="sidebar">
+          <div className="sidebar-label">Navigation</div>
+          <nav className="flex-1 space-y-px px-2">
+            {navItems.map(({ to, icon: Icon, label }) => (
+              <NavLink
+                key={to}
+                to={to}
+                end={to === "/"}
+                className={({ isActive }) =>
+                  `sidebar-link ${isActive ? "sidebar-link-active" : ""}`
+                }
+              >
+                <Icon className="w-3 h-3" />
+                <span>{label}</span>
+              </NavLink>
+            ))}
+          </nav>
+          <div className="px-3 py-2 border-t border-[#2a2f3f]">
+            <span className={`indicator ${connected ? "indicator-ok" : "indicator-critical"}`} />
+            <span className="ml-2 text-[9px] font-mono text-[#6b7280]">
+              {connected ? "DAEMON OK" : "DAEMON DOWN"}
+            </span>
+          </div>
+        </aside>
+
+        {/* Content */}
+        <main className="flex-1 overflow-auto p-4" style={{ background: "#0a0b0e" }}>
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }

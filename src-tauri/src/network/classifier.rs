@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum TrafficType {
     TcpTor,
@@ -25,21 +24,10 @@ pub struct TrafficClassifier {
     tor_socks_port: u16,
     dns_port: u16,
     local_nets: Vec<(IpAddr, u8)>,
-    udp_ports: std::collections::HashSet<u16>,
 }
 
 impl TrafficClassifier {
     pub fn new() -> Self {
-        let mut udp_ports = std::collections::HashSet::new();
-        udp_ports.insert(3478);
-        udp_ports.insert(3479);
-        udp_ports.insert(5349);
-        udp_ports.insert(5350);
-        udp_ports.insert(1194);
-        udp_ports.insert(1195);
-        udp_ports.insert(27015..=27030);
-        udp_ports.insert(4380);
-
         Self {
             tor_socks_port: 9050,
             dns_port: 53,
@@ -85,12 +73,6 @@ impl TrafficClassifier {
         }
 
         if packet.protocol == 17 {
-            if self.is_voice_or_media_port(packet.dst_port) {
-                return TrafficType::UdpAmneziaWG;
-            }
-            if self.is_voice_or_media_port(packet.src_port) {
-                return TrafficType::UdpAmneziaWG;
-            }
             return TrafficType::UdpAmneziaWG;
         }
 
@@ -102,8 +84,9 @@ impl TrafficClassifier {
     }
 
     fn is_local_address(&self, addr: &IpAddr) -> bool {
-        self.local_nets.iter().any(|(net, prefix)| {
-            match (addr, net) {
+        self.local_nets
+            .iter()
+            .any(|(net, prefix)| match (addr, net) {
                 (IpAddr::V4(ip), IpAddr::V4(net)) => {
                     let bits = *prefix as u32;
                     if bits == 0 {
@@ -135,15 +118,7 @@ impl TrafficClassifier {
                     }
                 }
                 _ => false,
-            }
-        })
-    }
-
-    fn is_voice_or_media_port(&self, port: u16) -> bool {
-        self.udp_ports.contains(&port)
-            || (3478..=3481).contains(&port)
-            || (5000..=6000).contains(&port)
-            || (16384..=32767).contains(&port)
+            })
     }
 }
 

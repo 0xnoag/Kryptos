@@ -2,67 +2,223 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Intel Agency Aesthetic ───────────────────────────────
+
+   Inspired by classified operations consoles, Bloomberg
+   terminals, and military C2 displays. Monochrome + green
+   phosphor accent. No rounded chrome. Data density.
+
+   Palette
+     black:      #0a0b0e
+     dark:       #111318
+     surface:    #181b24
+     raised:     #1f2330
+     border:     #2a2f3f
+     text:       #c8ccd4
+     text-dim:   #6b7280
+     green:      #4ade80   (phosphor green)
+     green-dim:  #166534
+     amber:      #f59e0b
+     red:        #ef4444
+     cyan:       #22d3ee
+   ─────────────────────────────────────────────────────── */
+
 @layer base {
   body {
     @apply antialiased;
+    font-family: "Inter", "SF Pro", -apple-system, BlinkMacSystemFont,
+      "Segoe UI", sans-serif;
+    background: #0a0b0e;
+    color: #c8ccd4;
+  }
+
+  code, .font-mono, .terminal {
+    font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
+  }
+
+  ::selection {
+    background: rgba(74, 222, 128, 0.25);
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0a0b0e;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #2a2f3f;
+    border-radius: 0;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #3a3f4f;
   }
 }
 
 @layer components {
-  .btn-primary {
-    @apply px-4 py-2 bg-privacy-600 hover:bg-privacy-500 
-           text-white font-medium rounded-lg transition-colors
-           disabled:opacity-50 disabled:cursor-not-allowed;
+  /* ── Classification banner ── */
+  .classification {
+    @apply h-6 bg-[#111318] border-b border-[#2a2f3f]
+           flex items-center justify-center
+           text-[9px] font-mono uppercase tracking-[0.25em] text-[#6b7280];
   }
 
-  .btn-danger {
-    @apply px-4 py-2 bg-danger-600 hover:bg-danger-500 
-           text-white font-medium rounded-lg transition-colors
-           disabled:opacity-50 disabled:cursor-not-allowed;
+  /* ── Status bar ── */
+  .status-bar {
+    @apply h-8 bg-[#111318] border-b border-[#2a2f3f]
+           flex items-center px-3 gap-3;
+  }
+  .status-bar-item {
+    @apply flex items-center gap-1.5 text-[10px] font-mono text-[#6b7280];
   }
 
-  .btn-outline {
-    @apply px-4 py-2 border border-gray-600 hover:border-gray-400 
-           text-gray-300 hover:text-white font-medium rounded-lg transition-colors;
+  /* ── Sidebar ── */
+  .sidebar {
+    @apply w-40 border-r border-[#2a2f3f] flex flex-col flex-shrink-0 bg-[#111318];
+  }
+  .sidebar-label {
+    @apply text-[9px] font-mono uppercase tracking-widest text-[#6b7280] px-3 pb-1 pt-2;
+  }
+  .sidebar-link {
+    @apply flex items-center gap-2.5 px-3 py-1.5
+           text-[11px] text-[#6b7280] font-mono
+           hover:text-[#c8ccd4] hover:bg-[#1f2330]
+           transition-colors duration-100;
+  }
+  .sidebar-link-active {
+    @apply text-[#4ade80] bg-[#4ade80]/5 border-l-2 border-[#4ade80];
   }
 
+  /* ── Content ── */
+  .page-title {
+    @apply text-[15px] font-semibold text-[#c8ccd4] font-mono;
+  }
+  .page-subtitle {
+    @apply text-[10px] text-[#6b7280] font-mono mt-0.5;
+  }
+
+  /* ── Cards ── */
   .card {
-    @apply bg-gray-900 border border-gray-800 rounded-xl p-6;
+    @apply border border-[#2a2f3f] p-3;
+    background: #181b24;
+  }
+  .card-header {
+    @apply flex items-center gap-2 pb-2 border-b border-[#2a2f3f];
+  }
+  .card-title {
+    @apply text-[11px] font-semibold text-[#c8ccd4] font-mono uppercase tracking-wider;
+  }
+  .card-number {
+    @apply text-[9px] font-mono text-[#6b7280];
   }
 
-  .status-dot {
-    @apply w-2.5 h-2.5 rounded-full inline-block;
+  /* ── Data rows ── */
+  .data-grid {
+    @apply space-y-px;
+  }
+  .data-row {
+    @apply flex items-center justify-between px-2 py-1
+           text-[11px] font-mono;
+  }
+  .data-row:hover {
+    background: rgba(31, 35, 48, 0.5);
+  }
+  .data-label {
+    @apply text-[#6b7280];
+  }
+  .data-value {
+    @apply text-[#c8ccd4];
   }
 
-  .status-dot-active {
-    @apply status-dot bg-privacy-500 shadow-[0_0_8px_rgba(34,197,94,0.5)];
+  /* ── Buttons ── */
+  .btn {
+    @apply px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider
+           border border-[#2a2f3f] text-[#6b7280]
+           hover:text-[#c8ccd4] hover:border-[#c8ccd4]/30
+           disabled:opacity-30 disabled:cursor-not-allowed
+           transition-colors duration-100;
+  }
+  .btn-primary {
+    @apply btn border-[#4ade80]/30 text-[#4ade80]
+           hover:border-[#4ade80] hover:bg-[#4ade80]/5;
+  }
+  .btn-critical {
+    @apply btn border-[#ef4444]/30 text-[#ef4444]
+           hover:border-[#ef4444] hover:bg-[#ef4444]/5;
+  }
+  .btn-ghost {
+    @apply btn border-transparent text-[#6b7280]
+           hover:text-[#c8ccd4] hover:bg-[#1f2330];
   }
 
-  .status-dot-inactive {
-    @apply status-dot bg-gray-600;
+  /* ── Status indicators ── */
+  .indicator {
+    @apply inline-block w-1.5 h-1.5 flex-shrink-0;
+  }
+  .indicator-ok  { background: #4ade80; }
+  .indicator-warn { background: #f59e0b; }
+  .indicator-critical { background: #ef4444; }
+  .indicator-info { background: #22d3ee; }
+  .indicator-off { background: #2a2f3f; }
+
+  /* ── Value styles ── */
+  .value-ok  { color: #4ade80; }
+  .value-warn { color: #f59e0b; }
+  .value-critical { color: #ef4444; }
+  .value-info { color: #22d3ee; }
+  .value-dim { color: #6b7280; }
+
+  /* ── Blinking cursor (for terminal effect) ── */
+  .cursor-blink {
+    animation: blink 1s step-end infinite;
+  }
+  @keyframes blink {
+    50% { opacity: 0; }
   }
 
-  .status-dot-error {
-    @apply status-dot bg-danger-500 shadow-[0_0_8px_rgba(239,68,68,0.5)];
+  /* ── Scan line overlay (subtle) ── */
+  .scanlines {
+    position: relative;
+  }
+  .scanlines::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.03) 2px,
+      rgba(0, 0, 0, 0.03) 4px
+    );
+    pointer-events: none;
   }
 
-  .status-dot-warning {
-    @apply status-dot bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.5)];
+  /* ── Table ── */
+  .proc-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .proc-table th {
+    @apply text-[9px] font-mono uppercase tracking-wider text-[#6b7280]
+           text-left px-2 py-1 border-b border-[#2a2f3f];
+  }
+  .proc-table td {
+    @apply text-[11px] font-mono text-[#c8ccd4] px-2 py-0.5 border-b border-[#2a2f3f]/50;
+  }
+  .proc-table tr:hover td {
+    background: rgba(31, 35, 48, 0.5);
   }
 
-  .panel {
-    @apply card space-y-4;
+  /* ── Level selector ── */
+  .level-btn {
+    @apply flex flex-col gap-1 p-2.5 border border-[#2a2f3f] text-left
+           hover:border-[#4ade80]/20 transition-colors duration-100;
+    background: #111318;
   }
-
-  .panel-title {
-    @apply text-lg font-semibold text-gray-200 flex items-center gap-2;
-  }
-
-  .meter-bar {
-    @apply h-2 bg-gray-800 rounded-full overflow-hidden;
-  }
-
-  .meter-fill {
-    @apply h-full bg-privacy-500 rounded-full transition-all duration-500;
+  .level-btn-active {
+    @apply border-[#4ade80]/30;
+    background: rgba(74, 222, 128, 0.03);
   }
 }
