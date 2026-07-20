@@ -12,7 +12,7 @@ const NFT_BINARY: &str = "/usr/sbin/nft";
 const TABLE_NAME: &str = "endpoint_privacy";
 const COMMAND_TIMEOUT_SECS: u64 = 15;
 
-const NFT_FLUSH: &str = "flush ruleset";
+const NFT_DELETE_TABLE: &str = "delete table inet endpoint_privacy";
 
 const NFT_KILL_SWITCH: &str = r#"
 table inet endpoint_privacy {
@@ -84,6 +84,32 @@ table inet endpoint_privacy {
 }
 "#;
 
+/// Tor-only traffic mode: all traffic must go through Tor.
+/// Blocks all UDP, redirects all TCP through Tor's tunnel interfaces.
+/// DNS is resolved through Tor (SOCKS or TorDNS at 127.0.0.1:5353).
+const NFT_TOR_ONLY: &str = r#"
+table inet endpoint_privacy {
+    chain privacy_input {
+        type filter hook input priority 0; policy drop;
+        iif "lo" accept
+        ct state established,related accept
+        reject with icmpx type admin-prohibited
+    }
+    chain privacy_output {
+        type filter hook output priority 0; policy drop;
+        oif "lo" accept
+        ct state established,related accept
+        oifname { "tun+", "tor+" } accept
+        reject with icmpx type admin-prohibited
+    }
+    chain privacy_forward {
+        type filter hook forward priority 0; policy drop;
+        iifname { "tun+", "tor+" } oifname != "lo" accept
+        reject with icmpx type admin-prohibited
+    }
+}
+"#;
+
 pub enum KillSwitchLevel {
     Soft,
     Hard,
@@ -114,7 +140,10 @@ impl NftablesManager {
 
     pub fn add_allowed_interface(&mut self, iface: &str) {
         // Validate interface name: only alphanumeric, hyphens, underscores, plus
-        if !iface.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '+') {
+        if !iface
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '+')
+        {
             warn!("Ignoring invalid interface name: {iface}");
             return;
         }
@@ -146,10 +175,13 @@ impl NftablesManager {
         let mut stdin = child.stdin.take().context("Failed to open nft stdin")?;
         let rules_owned = rules.to_string();
 
-        let write_result = timeout(Duration::from_secs(5), stdin.write_all(rules_owned.as_bytes()))
-            .await
-            .context("Timeout writing nft rules to stdin")?
-            .context("Failed to write nft rules to stdin");
+        let write_result = timeout(
+            Duration::from_secs(5),
+            stdin.write_all(rules_owned.as_bytes()),
+        )
+        .await
+        .context("Timeout writing nft rules to stdin")?
+        .context("Failed to write nft rules to stdin");
 
         if let Err(e) = write_result {
             error!("Failed to write nft rules: {e}");
@@ -160,10 +192,13 @@ impl NftablesManager {
 
         drop(stdin);
 
-        let output = timeout(Duration::from_secs(COMMAND_TIMEOUT_SECS), child.wait_with_output())
-            .await
-            .context("nft command timed out")?
-            .context("nft process failed")?;
+        let output = timeout(
+            Duration::from_secs(COMMAND_TIMEOUT_SECS),
+            child.wait_with_output(),
+        )
+        .await
+        .context("nft command timed out")?
+        .context("nft process failed")?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -187,8 +222,7 @@ impl NftablesManager {
             .stdout(Stdio::null())
             .stderr(Stdio::null());
 
-        let status = timeout(Duration::from_secs(5), cmd.status())
-            .await;
+        let status = timeout(Duration::from_secs(5), cmd.status()).await;
 
         match status {
             Ok(Ok(s)) if s.success() => true,
@@ -208,8 +242,30 @@ impl NftablesManager {
     }
 
     pub async fn flush_ruleset(&self) -> Result<()> {
-        self.nft_execute(NFT_FLUSH).await?;
-        info!("nftables ruleset flushed");
+        match self.nft_execute(NFT_DELETE_TABLE).await {
+            Ok(_) => {
+                info!("endpoint_privacy nftables table deleted");
+                Ok(())
+            }
+            Err(e) => {
+                // "No such file or directory" means the table didn't exist — that's fine
+                if e.to_string().contains("No such file or directory") {
+                    debug!("endpoint_privacy table did not exist, nothing to flush");
+                    Ok(())
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    }
+
+    pub async fn install_tor_only_mode(&mut self) -> Result<()> {
+        if !self.nft_is_available().await {
+            bail!("nftables is not available on this system");
+        }
+        self.nft_execute(NFT_TOR_ONLY).await?;
+        self.active = true;
+        info!("Tor-only traffic mode enforced via nftables");
         Ok(())
     }
 
@@ -405,8 +461,14 @@ mod tests {
         let mut nft = NftablesManager::new();
         nft.set_dns_upstream("1.1.1.1");
         let rules = nft.build_hard_rules();
-        assert!(rules.contains("ip daddr 1.1.1.1 udp dport { 53, 853 } accept"), "rules should restrict DNS to upstream IP");
-        assert!(rules.contains("ip daddr 1.1.1.1 tcp dport { 53, 853 } accept"), "rules should restrict DoT to upstream IP");
+        assert!(
+            rules.contains("ip daddr 1.1.1.1 udp dport { 53, 853 } accept"),
+            "rules should restrict DNS to upstream IP"
+        );
+        assert!(
+            rules.contains("ip daddr 1.1.1.1 tcp dport { 53, 853 } accept"),
+            "rules should restrict DoT to upstream IP"
+        );
     }
 
     #[test]
@@ -415,21 +477,33 @@ mod tests {
         let rules = nft.build_hard_rules();
         // Without upstream set, should use the static NFT_KILL_SWITCH which has unrestricted DNS
         assert!(rules.contains("udp dport { 53, 853 } accept"));
-        assert!(!rules.contains("ip daddr"), "no IP restriction when upstream is not configured");
+        assert!(
+            !rules.contains("ip daddr"),
+            "no IP restriction when upstream is not configured"
+        );
     }
 
     #[test]
     fn test_allowed_interface_validation() {
         let mut nft = NftablesManager::new();
         nft.add_allowed_interface("eth0");
-        assert!(nft.allowed_interfaces.contains("eth0"), "valid interface name accepted");
+        assert!(
+            nft.allowed_interfaces.contains("eth0"),
+            "valid interface name accepted"
+        );
 
         nft.add_allowed_interface("wg+");
-        assert!(nft.allowed_interfaces.contains("wg+"), "interface with plus accepted");
+        assert!(
+            nft.allowed_interfaces.contains("wg+"),
+            "interface with plus accepted"
+        );
 
         nft.add_allowed_interface("eth0.1");
         // Period is not in the whitelist, should be rejected
-        assert!(!nft.allowed_interfaces.contains("eth0.1"), "invalid interface name rejected");
+        assert!(
+            !nft.allowed_interfaces.contains("eth0.1"),
+            "invalid interface name rejected"
+        );
     }
 
     #[test]
@@ -438,8 +512,14 @@ mod tests {
         nft.add_allowed_interface("eth0");
         nft.set_dns_upstream("1.0.0.1");
         let rules = nft.build_hard_rules();
-        assert!(rules.contains("eth0"), "allowed interface should appear in rules");
-        assert!(rules.contains("1.0.0.1"), "dns upstream should appear in rules");
+        assert!(
+            rules.contains("eth0"),
+            "allowed interface should appear in rules"
+        );
+        assert!(
+            rules.contains("1.0.0.1"),
+            "dns upstream should appear in rules"
+        );
     }
 
     #[test]
@@ -447,15 +527,27 @@ mod tests {
         let nft = NftablesManager::new();
         let rules = nft.build_soft_rules();
         // Soft mode should NOT allow outbound DNS ports
-        assert!(!rules.contains("dport { 53, 853 }"), "soft mode should not allow outbound DNS ports");
+        assert!(
+            !rules.contains("dport { 53, 853 }"),
+            "soft mode should not allow outbound DNS ports"
+        );
     }
 
     #[test]
     fn test_nuclear_rules_loopback_only() {
-        assert!(NFT_NUCLEAR.contains("iif \"lo\" accept"), "nuclear allows lo input");
-        assert!(NFT_NUCLEAR.contains("oif \"lo\" accept"), "nuclear allows lo output");
+        assert!(
+            NFT_NUCLEAR.contains("iif \"lo\" accept"),
+            "nuclear allows lo input"
+        );
+        assert!(
+            NFT_NUCLEAR.contains("oif \"lo\" accept"),
+            "nuclear allows lo output"
+        );
         // No tunnel or established exceptions in nuclear mode
         assert!(!NFT_NUCLEAR.contains("tun+"), "no tunnel in nuclear");
-        assert!(!NFT_NUCLEAR.contains("established"), "no established in nuclear");
+        assert!(
+            !NFT_NUCLEAR.contains("established"),
+            "no established in nuclear"
+        );
     }
 }

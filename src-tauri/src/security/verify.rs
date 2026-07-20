@@ -48,8 +48,7 @@ impl BinaryVerifier {
         let mut overrides: HashMap<String, BinaryHashEntry> = HashMap::new();
 
         if path.exists() {
-            let contents = std::fs::read_to_string(path)
-                .context("Failed to read .hashes file")?;
+            let contents = std::fs::read_to_string(path).context("Failed to read .hashes file")?;
 
             #[derive(serde::Deserialize)]
             struct HashValue {
@@ -62,8 +61,8 @@ impl BinaryVerifier {
                 hashes: Option<HashMap<String, HashValue>>,
             }
 
-            let parsed: HashFile = toml::from_str(&contents)
-                .context("Failed to parse .hashes file")?;
+            let parsed: HashFile =
+                toml::from_str(&contents).context("Failed to parse .hashes file")?;
 
             if let Some(hashes) = parsed.hashes {
                 for (binary_path, entry) in hashes {
@@ -180,10 +179,7 @@ impl BinaryVerifier {
                 Ok(actual) => {
                     failures.push((
                         path_str.clone(),
-                        format!(
-                            "Hash mismatch: expected {}, got {}",
-                            entry.hash_hex, actual
-                        ),
+                        format!("Hash mismatch: expected {}, got {}", entry.hash_hex, actual),
                     ));
                 }
                 Err(e) => {

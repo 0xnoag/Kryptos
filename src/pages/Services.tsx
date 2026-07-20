@@ -1,7 +1,6 @@
 import { useDaemon } from "../lib/daemon-context";
-import { Play, Square, RotateCcw, Radio } from "lucide-react";
 
-const serviceLabels: Record<string, string> = {
+const serviceDescs: Record<string, string> = {
   Tor: "TCP anonymization via Tor with obfs4 bridging",
   Obfs4Proxy: "Traffic obfuscation proxy for Tor bridges",
   AmneziaWG: "Obfuscated WireGuard UDP tunnel",
@@ -20,113 +19,97 @@ export function Services() {
   const { services, startService, stopService, restartService } = useDaemon();
 
   return (
-    <div className="space-y-5 max-w-[1280px]">
+    <div className="space-y-3 max-w-[1280px]">
       <div>
-        <h1 className="text-lg font-semibold text-[#e2e8f0]">Services</h1>
-        <p className="text-caption mt-0.5">Manage the core privacy engine processes</p>
+        <div className="page-title">SERVICES</div>
+        <div className="page-subtitle">PROCESS CONTROL // SERVICE MANAGEMENT</div>
       </div>
 
-      <div className="space-y-3">
-        {services.map((svc) => {
-          let dotClass = "status-dot-muted";
-          let statusLabel = "Stopped";
-          if (svc.status === "Running") {
-            dotClass = "status-dot-ok";
-            statusLabel = "Running";
-          } else if (svc.status === "Failed") {
-            dotClass = "status-dot-critical";
-            statusLabel = "Failed";
-          } else if (svc.status === "Starting") {
-            dotClass = "status-dot-warn";
-            statusLabel = "Starting";
-          } else if (svc.status === "Restarting") {
-            dotClass = "status-dot-warn";
-            statusLabel = "Restarting";
-          }
+      <table className="proc-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>PROCESS</th>
+            <th>STATUS</th>
+            <th>UPTIME</th>
+            <th>PID</th>
+            <th>RESTARTS</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {services.map((svc) => {
+            let indicator = "indicator-off";
+            let statusClass = "value-dim";
+            if (svc.status === "Running") { indicator = "indicator-ok"; statusClass = "value-ok"; }
+            else if (svc.status === "Failed") { indicator = "indicator-critical"; statusClass = "value-critical"; }
+            else if (svc.status === "Starting" || svc.status === "Restarting") { indicator = "indicator-warn"; statusClass = "value-warn"; }
 
-          return (
-            <div key={svc.name} className="card">
-              <div className="flex items-start justify-between">
-                <div className="flex items-start gap-3">
-                  <div className={`p-2 rounded-md ${
-                    svc.status === "Running"
-                      ? "bg-[#064e3b]"
-                      : "bg-[#232738]"
-                  }`}>
-                    <Radio className={`w-4 h-4 ${
-                      svc.status === "Running"
-                        ? "text-[#6ee7b7]"
-                        : "text-[#64748b]"
-                    }`} />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-sm font-semibold text-[#e2e8f0]">
-                        {svc.name}
-                      </h3>
-                      <span className={dotClass} />
-                      <span className="text-[11px] text-[#64748b]">{statusLabel}</span>
-                    </div>
-                    <p className="text-[11px] text-[#64748b] mt-0.5">
-                      {serviceLabels[svc.name] ?? ""}
-                    </p>
-                    <div className="flex items-center gap-3 mt-1.5">
-                      {svc.uptime_secs > 0 && (
-                        <span className="text-caption font-mono">
-                          {formatUptime(svc.uptime_secs)}
-                        </span>
-                      )}
-                      {svc.restart_count > 0 && (
-                        <span className="text-caption">
-                          Restarts: {svc.restart_count}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
+            return (
+              <tr key={svc.name}>
+                <td className="w-4"><span className={`indicator ${indicator}`} /></td>
+                <td className="font-semibold">{svc.name}</td>
+                <td className={statusClass}>{svc.status.toUpperCase()}</td>
+                <td className="text-[#6b7280]">{svc.uptime_secs > 0 ? formatUptime(svc.uptime_secs) : "-"}</td>
+                <td className="text-[#6b7280]">{svc.pid ?? "-"}</td>
+                <td className="text-[#6b7280]">{svc.restart_count > 0 ? svc.restart_count : "-"}</td>
+                <td className="text-right">
                   {svc.status !== "Running" ? (
                     <button
                       onClick={() => startService(svc.name)}
-                      className="btn-primary flex items-center gap-1.5"
+                      className="btn-primary"
                       disabled={svc.status === "Starting" || svc.status === "Restarting"}
                     >
-                      <Play className="w-3 h-3" />
-                      Start
+                      START
                     </button>
                   ) : (
-                    <>
+                    <div className="flex gap-1">
                       <button
                         onClick={() => restartService(svc.name)}
-                        className="btn-secondary flex items-center gap-1.5"
+                        className="btn-ghost"
                       >
-                        <RotateCcw className="w-3 h-3" />
-                        Restart
+                        RESTART
                       </button>
                       <button
                         onClick={() => stopService(svc.name)}
-                        className="btn-critical flex items-center gap-1.5"
+                        className="btn"
                       >
-                        <Square className="w-3 h-3" />
-                        Stop
+                        STOP
                       </button>
-                    </>
+                    </div>
                   )}
-                </div>
-              </div>
-            </div>
-          );
-        })}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
 
-        {services.length === 0 && (
-          <div className="card py-8 text-center">
-            <Radio className="w-8 h-8 text-[#2a2e3d] mx-auto mb-2" />
-            <p className="text-[13px] text-[#64748b]">No services registered</p>
-            <p className="text-caption mt-1">Daemon may not be connected</p>
+      {services.length === 0 && (
+        <div className="card py-4 text-center">
+          <div className="text-[11px] font-mono text-[#6b7280]">NO SERVICES REGISTERED</div>
+          <div className="text-[9px] font-mono text-[#6b7280] mt-1">DAEMON MAY NOT BE CONNECTED</div>
+        </div>
+      )}
+
+      {/* Process descriptions */}
+      {services.length > 0 && (
+        <div className="card">
+          <div className="card-header">
+            <span className="card-title">PROCESS INFORMATION</span>
           </div>
-        )}
-      </div>
+          <div className="mt-2 space-y-px">
+            {services.map((svc) => (
+              <div key={svc.name} className="data-row">
+                <span className="data-label">{svc.name}</span>
+                <span className="text-[10px] text-[#6b7280] font-mono">
+                  {serviceDescs[svc.name] ?? ""}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

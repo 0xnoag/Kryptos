@@ -9,12 +9,27 @@ use std::path::{Path, PathBuf};
 use tracing::warn;
 use zeroize::Zeroize;
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub enum TrafficMode {
+    #[serde(rename = "split")]
+    Split,
+    #[serde(rename = "tor_only")]
+    TorOnly,
+}
+
+impl Default for TrafficMode {
+    fn default() -> Self {
+        TrafficMode::Split
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DaemonConfig {
     pub version: u32,
     pub autostart_services: Vec<String>,
     pub kill_switch_on_exit: bool,
     pub default_panic_level: String,
+    pub traffic_mode: TrafficMode,
     pub dns: DnsConfig,
     pub tor: TorConfig,
     pub amneziawg: AmneziaWGConfig,
@@ -86,6 +101,7 @@ impl Default for DaemonConfig {
             autostart_services: vec!["tor".into()],
             kill_switch_on_exit: true,
             default_panic_level: "soft".into(),
+            traffic_mode: TrafficMode::default(),
             dns: DnsConfig {
                 upstream: "1.1.1.1".into(),
                 doh_url: "https://cloudflare-dns.com/dns-query".into(),
@@ -132,8 +148,7 @@ pub struct ConfigManager {
 impl ConfigManager {
     pub fn new(config_dir: &str, password: &str) -> Result<Self> {
         let config_dir = PathBuf::from(config_dir);
-        std::fs::create_dir_all(&config_dir)
-            .context("Failed to create config directory")?;
+        std::fs::create_dir_all(&config_dir).context("Failed to create config directory")?;
 
         let config_path = config_dir.join("config.enc");
         let key = Self::derive_key(password, &config_dir)?;
@@ -165,18 +180,10 @@ impl ConfigManager {
         };
 
         let mut key = [0u8; 32];
-        let params = Argon2Params::new(
-            65536,
-            3,
-            4,
-            Some(32),
-        ).context("Failed to create Argon2 params")?;
+        let params =
+            Argon2Params::new(65536, 3, 4, Some(32)).context("Failed to create Argon2 params")?;
 
-        Argon2::new(
-            argon2::Algorithm::Argon2id,
-            argon2::Version::V0x13,
-            params,
-        )
+        Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params)
             .hash_password_into(password.as_bytes(), &salt, &mut key)
             .context("Argon2 key derivation failed")?;
 
@@ -190,8 +197,8 @@ impl ConfigManager {
             return Ok(config);
         }
 
-        let encrypted = std::fs::read(&self.config_path)
-            .context("Failed to read encrypted config")?;
+        let encrypted =
+            std::fs::read(&self.config_path).context("Failed to read encrypted config")?;
 
         if encrypted.len() < 12 {
             anyhow::bail!("Encrypted config file is too short ({} bytes) — expected at least 12 bytes for nonce", encrypted.len());
@@ -205,15 +212,14 @@ impl ConfigManager {
             .decrypt(nonce, &encrypted[12..])
             .map_err(|_| anyhow::anyhow!("Decryption failed — wrong password or corrupted file"))?;
 
-        let config: DaemonConfig = toml::from_slice(&plaintext)
-            .context("Failed to deserialize config")?;
+        let config: DaemonConfig =
+            toml::from_slice(&plaintext).context("Failed to deserialize config")?;
 
         Ok(config)
     }
 
     pub fn save(&self, config: &DaemonConfig) -> Result<()> {
-        let plaintext = toml::to_string_pretty(config)
-            .context("Failed to serialize config")?;
+        let plaintext = toml::to_string_pretty(config).context("Failed to serialize config")?;
 
         let cipher = Aes256Gcm::new_from_slice(&self.key)
             .map_err(|e| anyhow::anyhow!("Invalid key length: {e}"))?;
@@ -231,8 +237,7 @@ impl ConfigManager {
         output.extend_from_slice(&nonce_bytes);
         output.extend_from_slice(&ciphertext);
 
-        std::fs::write(&self.config_path, &output)
-            .context("Failed to write encrypted config")?;
+        std::fs::write(&self.config_path, &output).context("Failed to write encrypted config")?;
 
         #[cfg(unix)]
         {
@@ -241,7 +246,10 @@ impl ConfigManager {
                 let mut perms = meta.permissions();
                 perms.set_mode(0o600);
                 if let Err(e) = std::fs::set_permissions(&self.config_path, perms) {
-                    warn!("Failed to set permissions on {}: {e}", self.config_path.display());
+                    warn!(
+                        "Failed to set permissions on {}: {e}",
+                        self.config_path.display()
+                    );
                 }
             }
         }
@@ -276,9 +284,18 @@ mod tests {
         };
 
         let debug_str = format!("{:?}", config);
-        assert!(!debug_str.contains("deadbeef"), "Debug should not expose bridge cert");
-        assert!(!debug_str.contains("cafebabe"), "Debug should not expose bridge cert");
-        assert!(debug_str.contains("[2 entries]"), "Debug should show entry count");
+        assert!(
+            !debug_str.contains("deadbeef"),
+            "Debug should not expose bridge cert"
+        );
+        assert!(
+            !debug_str.contains("cafebabe"),
+            "Debug should not expose bridge cert"
+        );
+        assert!(
+            debug_str.contains("[2 entries]"),
+            "Debug should show entry count"
+        );
     }
 
     #[test]
@@ -292,12 +309,23 @@ mod tests {
     #[test]
     fn test_argon2_params_use_strong_defaults() {
         // The parameters used in ConfigManager::derive_key
-        let params = Argon2Params::new(65536, 3, 4, Some(32))
-            .expect("valid Argon2 params");
+        let params = Argon2Params::new(65536, 3, 4, Some(32)).expect("valid Argon2 params");
         // Verify the params are reasonable (non-trivial)
-        assert!(params.m_cost() >= 65536, "memory cost should be at least 64 MiB, got {}", params.m_cost());
-        assert!(params.t_cost() >= 3, "time cost should be at least 3, got {}", params.t_cost());
-        assert!(params.p_cost() >= 1, "parallelism should be at least 1, got {}", params.p_cost());
+        assert!(
+            params.m_cost() >= 65536,
+            "memory cost should be at least 64 MiB, got {}",
+            params.m_cost()
+        );
+        assert!(
+            params.t_cost() >= 3,
+            "time cost should be at least 3, got {}",
+            params.t_cost()
+        );
+        assert!(
+            params.p_cost() >= 1,
+            "parallelism should be at least 1, got {}",
+            params.p_cost()
+        );
     }
 
     #[test]

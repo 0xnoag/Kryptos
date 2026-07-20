@@ -28,7 +28,7 @@ interface DaemonContextType extends DaemonState {
   startService: (name: string) => Promise<void>;
   stopService: (name: string) => Promise<void>;
   restartService: (name: string) => Promise<void>;
-  setPanicLevel: (level: string) => Promise<void>;
+  setPanicLevel: (level: string, confirmation?: string) => Promise<void>;
   refresh: () => Promise<void>;
 }
 
@@ -89,10 +89,14 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
     await refresh();
   }, [refresh]);
 
-  const setPanicLevel = useCallback(async (level: string) => {
+  const setPanicLevel = useCallback(async (level: string, confirmation?: string) => {
+    const payload: Record<string, unknown> = { level };
+    if (confirmation) {
+      payload.confirmation = confirmation;
+    }
     const response = await ipc.send({
       type: "SetPanicLevel",
-      payload: { level },
+      payload,
     });
     if (response.type === "PanicStatus") {
       setState((s) => ({

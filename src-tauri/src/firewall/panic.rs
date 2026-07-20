@@ -165,7 +165,9 @@ impl PanicEngine {
             for iface in &ifaces {
                 let mut cmd = Command::new("ip");
                 cmd.args(["link", "set", "dev", iface, "up"]);
-                if let Err(e) = run_command_logged(&mut cmd, &format!("restore interface {iface}")).await {
+                if let Err(e) =
+                    run_command_logged(&mut cmd, &format!("restore interface {iface}")).await
+                {
                     error!("Failed to restore interface {iface}: {e}");
                 } else {
                     info!("Restored interface {iface}");
@@ -194,15 +196,18 @@ impl PanicEngine {
     }
 
     async fn drop_all_interfaces(&self) -> Result<Vec<String>> {
-        info!("Dropping all network interfaces (except excluded: {:?})", self.excluded_interfaces);
+        info!(
+            "Dropping all network interfaces (except excluded: {:?})",
+            self.excluded_interfaces
+        );
         let mut dropped = Vec::new();
 
         let entries = tokio::fs::read_dir("/sys/class/net")
             .await
             .context("Failed to read /sys/class/net")?;
 
-        use tokio_stream::StreamExt;
         use tokio_stream::wrappers::ReadDirStream;
+        use tokio_stream::StreamExt;
         let mut stream = ReadDirStream::new(entries);
 
         while let Some(entry) = stream.next().await {
@@ -217,7 +222,11 @@ impl PanicEngine {
             let name = entry.file_name();
             let name_str = name.to_string_lossy().to_string();
 
-            if self.excluded_interfaces.iter().any(|ex| name_str == *ex || name_str.starts_with(ex)) {
+            if self
+                .excluded_interfaces
+                .iter()
+                .any(|ex| name_str == *ex || name_str.starts_with(ex))
+            {
                 info!("Skipping excluded interface: {name_str}");
                 continue;
             }

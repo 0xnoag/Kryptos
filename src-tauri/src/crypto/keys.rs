@@ -20,8 +20,8 @@ impl KeyDerivation {
     /// - 32-byte output
     pub fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; 32]> {
         let mut key = [0u8; 32];
-        let params = Argon2Params::new(65536, 3, 4, Some(32))
-            .context("Failed to create Argon2 params")?;
+        let params =
+            Argon2Params::new(65536, 3, 4, Some(32)).context("Failed to create Argon2 params")?;
         Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params)
             .hash_password_into(password.as_bytes(), salt, &mut key)
             .context("Argon2 key derivation failed")?;
@@ -120,8 +120,14 @@ mod tests {
         let key = [0x42u8; 32];
         let plaintext = b"Hello, Kryptos! This is sensitive config data.";
         let encrypted = KeyDerivation::encrypt(plaintext, &key).unwrap();
-        assert_ne!(encrypted, plaintext, "encrypted data should differ from plaintext");
-        assert!(encrypted.len() > plaintext.len(), "encrypted should include nonce + tag");
+        assert_ne!(
+            encrypted, plaintext,
+            "encrypted data should differ from plaintext"
+        );
+        assert!(
+            encrypted.len() > plaintext.len(),
+            "encrypted should include nonce + tag"
+        );
 
         let decrypted = KeyDerivation::decrypt(&encrypted, &key).unwrap();
         assert_eq!(decrypted, plaintext, "decrypted should match original");
@@ -133,7 +139,10 @@ mod tests {
         let key2 = [0x24u8; 32];
         let plaintext = b"test data";
         let encrypted = KeyDerivation::encrypt(plaintext, &key1).unwrap();
-        assert!(KeyDerivation::decrypt(&encrypted, &key2).is_err(), "wrong key should fail decryption");
+        assert!(
+            KeyDerivation::decrypt(&encrypted, &key2).is_err(),
+            "wrong key should fail decryption"
+        );
     }
 
     #[test]
@@ -143,14 +152,21 @@ mod tests {
         let enc1 = KeyDerivation::encrypt(plaintext, &key).unwrap();
         let enc2 = KeyDerivation::encrypt(plaintext, &key).unwrap();
         // Nonce is prepended (first 12 bytes), so different nonces mean different ciphertexts
-        assert_ne!(enc1[..12], enc2[..12], "each encryption should use a fresh random nonce");
+        assert_ne!(
+            enc1[..12],
+            enc2[..12],
+            "each encryption should use a fresh random nonce"
+        );
     }
 
     #[test]
     fn test_secure_zero_clears_data() {
         let mut data = vec![0xABu8; 64];
         KeyDerivation::secure_zero(&mut data);
-        assert!(data.iter().all(|&b| b == 0), "zeroize should clear all bytes");
+        assert!(
+            data.iter().all(|&b| b == 0),
+            "zeroize should clear all bytes"
+        );
     }
 
     #[test]

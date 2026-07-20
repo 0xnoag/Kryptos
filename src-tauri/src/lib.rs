@@ -1,11 +1,11 @@
+pub mod crypto;
 pub mod daemon;
 pub mod firewall;
 pub mod network;
-pub mod utils;
-pub mod crypto;
 pub mod security;
+pub mod utils;
 
-use daemon::config::DaemonConfig;
+use daemon::config::{DaemonConfig, TrafficMode};
 use daemon::engine::ProcessManager;
 use firewall::nftables::{KillSwitchStatus, NftablesManager};
 use firewall::panic::PanicEngine;
@@ -51,10 +51,7 @@ impl EndpointPrivacyDaemon {
                     );
                 }
                 Ok(KillSwitchStatus::Partial(rules)) => {
-                    warn!(
-                        "Partial pre-existing nftables rules detected:\n{}",
-                        rules
-                    );
+                    warn!("Partial pre-existing nftables rules detected:\n{}", rules);
                 }
                 Ok(KillSwitchStatus::Inactive) => {
                     info!("No pre-existing nftables kill-switch rules found");
@@ -65,6 +62,14 @@ impl EndpointPrivacyDaemon {
                 Err(e) => {
                     warn!("Failed to check nftables status on startup: {e}");
                 }
+            }
+        }
+
+        // Apply traffic mode rules
+        if config.traffic_mode == TrafficMode::TorOnly {
+            let mut nft = nftables_manager.write().await;
+            if let Err(e) = nft.install_tor_only_mode().await {
+                warn!("Failed to install Tor-only traffic mode: {e}");
             }
         }
 
@@ -81,7 +86,10 @@ impl EndpointPrivacyDaemon {
                 Some(v)
             }
             Err(e) => {
-                warn!("Failed to load .hashes file ({}): {e}", hashes_path.display());
+                warn!(
+                    "Failed to load .hashes file ({}): {e}",
+                    hashes_path.display()
+                );
                 if strict_verification {
                     return Err(e);
                 }

@@ -3,7 +3,7 @@ name = "endpoint-privacy-suite"
 version = "0.1.0"
 description = "High-performance Endpoint Privacy Suite for Kali Linux"
 edition = "2021"
-default-run = "endpoint-privacy-daemon"
+default-run = "endpoint-privacy-suite"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -27,3 +27,4 @@ lru = "0.12"
 tokio-stream = "0.1"
 sha2 = "0.10"
 hex = "0.4"
+ureq = { version = "2", features = ["native-certs"] }

@@ -4,10 +4,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, watch, Mutex, RwLock};
-use std::sync::Arc;
 use tracing::{error, info, warn};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -121,7 +121,11 @@ impl ProcessManager {
         };
         self.services.insert(name, Arc::new(RwLock::new(proc)));
         self.start_locks.insert(name, Arc::new(Mutex::new(())));
-        info!("Registered service: {} at {}", name.display_name(), binary_path);
+        info!(
+            "Registered service: {} at {}",
+            name.display_name(),
+            binary_path
+        );
     }
 
     pub fn register_defaults(&mut self, tor_config: Option<String>, awg_config: Option<String>) {
@@ -147,7 +151,9 @@ impl ProcessManager {
     }
 
     pub async fn start(&mut self, name: ServiceName) -> Result<()> {
-        let lock = self.start_locks.get(&name)
+        let lock = self
+            .start_locks
+            .get(&name)
             .ok_or_else(|| anyhow::anyhow!("Service {} not registered", name.display_name()))?
             .clone();
 
@@ -207,23 +213,37 @@ impl ProcessManager {
             .spawn()
             .context(format!("Failed to spawn {}", name_clone.display_name()))?;
 
-        let pid = child.id().ok_or_else(|| anyhow::anyhow!("No PID for spawned process"))?;
+        let pid = child
+            .id()
+            .ok_or_else(|| anyhow::anyhow!("No PID for spawned process"))?;
 
         if let Some(ref tx) = status_tx {
             let _ = tx.send(ServiceStatus::Running);
         }
         proc.status = ServiceStatus::Running;
         proc.started_at = Some(std::time::Instant::now());
-        info!("{} started (PID: {}, restart limit: {})", name_clone.display_name(), pid, max_restarts);
+        info!(
+            "{} started (PID: {}, restart limit: {})",
+            name_clone.display_name(),
+            pid,
+            max_restarts
+        );
 
         let proc_watch = proc_arc.clone();
         let verifier = self.verifier.clone();
         tokio::spawn(async move {
             Self::watch_process(
-                name_clone, child, status_tx, shutdown_rx,
-                proc_watch, base_delay, max_delay, max_restarts,
+                name_clone,
+                child,
+                status_tx,
+                shutdown_rx,
+                proc_watch,
+                base_delay,
+                max_delay,
+                max_restarts,
                 verifier,
-            ).await;
+            )
+            .await;
         });
 
         Ok(())
@@ -290,7 +310,9 @@ impl ProcessManager {
                     let attempt = proc.restart_count;
 
                     // Re-check: if service was stopped while we were processing output, abort restart
-                    if proc.status == ServiceStatus::Stopped || proc.status == ServiceStatus::Stopping {
+                    if proc.status == ServiceStatus::Stopped
+                        || proc.status == ServiceStatus::Stopping
+                    {
                         info!("{} was stopped during restart window", name.display_name());
                         return;
                     }
@@ -299,7 +321,8 @@ impl ProcessManager {
                         let exp = std::cmp::min(attempt.saturating_sub(1), 5);
                         let multiplier = 2u64.pow(exp);
                         let delay_secs = base_delay.as_secs_f64() * (multiplier as f64);
-                        let delay = Duration::from_secs_f64(delay_secs.min(max_delay.as_secs_f64()));
+                        let delay =
+                            Duration::from_secs_f64(delay_secs.min(max_delay.as_secs_f64()));
 
                         proc.status = ServiceStatus::Restarting;
                         drop(proc);
@@ -336,7 +359,8 @@ impl ProcessManager {
                                     name_for_verify.display_name(),
                                     binary.display()
                                 );
-                                let status = ServiceStatus::Failed(format!("Integrity check failed: {e}"));
+                                let status =
+                                    ServiceStatus::Failed(format!("Integrity check failed: {e}"));
                                 if let Some(ref tx) = status_tx {
                                     let _ = tx.send(status);
                                 }
@@ -370,9 +394,9 @@ impl ProcessManager {
                             }
                         }
                     } else {
-                        let status = ServiceStatus::Failed(
-                            format!("Exceeded max restarts ({max_restarts}), last exit: {exit_code}")
-                        );
+                        let status = ServiceStatus::Failed(format!(
+                            "Exceeded max restarts ({max_restarts}), last exit: {exit_code}"
+                        ));
                         if let Some(ref tx) = status_tx {
                             let _ = tx.send(status);
                         }
@@ -413,7 +437,10 @@ impl ProcessManager {
             // Use blocking send to ensure delivery; unwrap is safe because
             // watch_process holds the receiver end for the entire loop
             if tx.send(0).await.is_err() {
-                warn!("{} shutdown signal not received (watchdog already exited)", name.display_name());
+                warn!(
+                    "{} shutdown signal not received (watchdog already exited)",
+                    name.display_name()
+                );
             }
         }
 
@@ -496,8 +523,18 @@ mod tests {
 
     fn test_pm() -> ProcessManager {
         let mut pm = ProcessManager::new();
-        pm.register_service(ServiceName::Tor, "/usr/bin/tor", vec!["-f".into(), "/etc/tor/torrc".into()], 5);
-        pm.register_service(ServiceName::Syncthing, "/usr/bin/syncthing", vec!["--no-browser".into()], 3);
+        pm.register_service(
+            ServiceName::Tor,
+            "/usr/bin/tor",
+            vec!["-f".into(), "/etc/tor/torrc".into()],
+            5,
+        );
+        pm.register_service(
+            ServiceName::Syncthing,
+            "/usr/bin/syncthing",
+            vec!["--no-browser".into()],
+            3,
+        );
         pm
     }
 
@@ -538,7 +575,10 @@ mod tests {
     #[tokio::test]
     async fn test_is_any_running_returns_false_initially() {
         let pm = test_pm();
-        assert!(!pm.is_any_running().await, "no services should be running initially");
+        assert!(
+            !pm.is_any_running().await,
+            "no services should be running initially"
+        );
     }
 
     #[tokio::test]
@@ -549,7 +589,10 @@ mod tests {
 
         let _guard1 = lock1.lock().await;
         // Second lock attempt would block -- just verify the lock exists
-        assert!(lock2.try_lock().is_err(), "concurrent start should be blocked");
+        assert!(
+            lock2.try_lock().is_err(),
+            "concurrent start should be blocked"
+        );
     }
 
     #[test]

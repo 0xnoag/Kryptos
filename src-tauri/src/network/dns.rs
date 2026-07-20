@@ -12,6 +12,35 @@ use crate::daemon::config::DnsConfig;
 const MAX_DNS_PACKET: usize = 512;
 const DNS_TIMEOUT_SECS: u64 = 5;
 
+/// Resolve a raw DNS query via DNS-over-HTTPS (RFC 8484).
+/// Uses ureq to POST to the configured DoH endpoint.
+/// Must be called via spawn_blocking since ureq is a blocking client.
+fn dns_over_https(doh_url: &str, query: &[u8]) -> Result<Vec<u8>> {
+    let response = ureq::post(doh_url)
+        .set("Content-Type", "application/dns-message")
+        .set("Accept", "application/dns-message")
+        .send_bytes(query)
+        .map_err(|e| anyhow::anyhow!("DoH request failed: {e}"))?;
+
+    let status = response.status();
+    if status != 200 {
+        anyhow::bail!("DoH server returned HTTP {status}");
+    }
+
+    let mut body = Vec::new();
+    use std::io::Read;
+    response
+        .into_reader()
+        .read_to_end(&mut body)
+        .context("Failed to read DoH response body")?;
+
+    if body.is_empty() {
+        anyhow::bail!("DoH server returned empty response");
+    }
+
+    Ok(body)
+}
+
 /// Local plain-UDP DNS forwarder.
 ///
 /// **SECURITY NOTICE**: This forwards DNS queries to the upstream resolver
@@ -51,15 +80,19 @@ impl DnsHijacker {
     }
 
     pub async fn start(&mut self) -> Result<()> {
-        let bind_addr: SocketAddr = format!("{}:{}", self.config.bind_address, self.config.bind_port)
-            .parse()
-            .context("Invalid DNS bind address")?;
+        let bind_addr: SocketAddr =
+            format!("{}:{}", self.config.bind_address, self.config.bind_port)
+                .parse()
+                .context("Invalid DNS bind address")?;
 
-        let listener = UdpSocket::bind(bind_addr)
-            .await
-            .with_context(|| format!("Failed to bind DNS listener to {bind_addr} (try running as root)"))?;
+        let listener = UdpSocket::bind(bind_addr).await.with_context(|| {
+            format!("Failed to bind DNS listener to {bind_addr} (try running as root)")
+        })?;
 
-        info!("DNS forwarder listening on {} (plain UDP to {})", bind_addr, self.config.upstream);
+        info!(
+            "DNS forwarder listening on {} (plain UDP to {})",
+            bind_addr, self.config.upstream
+        );
 
         let upstream = UdpSocket::bind("127.0.0.1:0").await?;
 
@@ -111,45 +144,80 @@ impl DnsHijacker {
                                 continue;
                             }
                         };
+                        let doh_url = self.config.doh_url.clone();
+                        let use_doh = !doh_url.is_empty();
 
                         tokio::spawn(async move {
-                            let result = timeout(
-                                Duration::from_secs(DNS_TIMEOUT_SECS),
-                                upstream_clone.send_to(&query, upstream_addr_clone),
-                            )
-                            .await;
-
-                            match result {
-                                Ok(Ok(_)) => {
-                                    let mut resp = vec![0u8; MAX_DNS_PACKET];
-                                    let recv_result = timeout(
-                                        Duration::from_secs(DNS_TIMEOUT_SECS),
-                                        upstream_clone.recv_from(&mut resp),
-                                    )
-                                    .await;
-
-                                    match recv_result {
-                                        Ok(Ok((rn, _))) => {
-                                            let response = resp[..rn].to_vec();
-                                            let mut cache = cache_clone.write().await;
-                                            cache.put(query, response.clone());
-                                            if let Err(e) = listener_for_spawn.send_to(&response, src).await {
-                                                trace!("Failed to send DNS response to {}: {e}", src);
-                                            }
-                                        }
-                                        Ok(Err(e)) => {
-                                            warn!("DNS upstream recv error: {e}");
-                                        }
-                                        Err(_) => {
-                                            warn!("DNS upstream recv timed out after {DNS_TIMEOUT_SECS}s");
-                                        }
+                            let response = if use_doh {
+                                match timeout(
+                                    Duration::from_secs(DNS_TIMEOUT_SECS),
+                                    tokio::task::spawn_blocking({
+                                        let doh_url = doh_url.clone();
+                                        let query = query.clone();
+                                        move || dns_over_https(&doh_url, &query)
+                                    }),
+                                )
+                                .await
+                                {
+                                    Ok(Ok(Ok(data))) => Some(data),
+                                    Ok(Ok(Err(e))) => {
+                                        warn!("DoH request failed: {e}");
+                                        None
+                                    }
+                                    Ok(Err(_)) => {
+                                        warn!("DoH blocking task panicked");
+                                        None
+                                    }
+                                    Err(_) => {
+                                        warn!("DoH request timed out after {DNS_TIMEOUT_SECS}s");
+                                        None
                                     }
                                 }
-                                Ok(Err(e)) => {
-                                    warn!("DNS upstream send error: {e}");
+                            } else {
+                                // Fallback to plain UDP
+                                match timeout(
+                                    Duration::from_secs(DNS_TIMEOUT_SECS),
+                                    upstream_clone.send_to(&query, upstream_addr_clone),
+                                )
+                                .await
+                                {
+                                    Ok(Ok(_)) => {
+                                        let mut resp = vec![0u8; MAX_DNS_PACKET];
+                                        match timeout(
+                                            Duration::from_secs(DNS_TIMEOUT_SECS),
+                                            upstream_clone.recv_from(&mut resp),
+                                        )
+                                        .await
+                                        {
+                                            Ok(Ok((rn, _))) => Some(resp[..rn].to_vec()),
+                                            Ok(Err(e)) => {
+                                                warn!("DNS upstream recv error: {e}");
+                                                None
+                                            }
+                                            Err(_) => {
+                                                warn!("DNS upstream recv timed out after {DNS_TIMEOUT_SECS}s");
+                                                None
+                                            }
+                                        }
+                                    }
+                                    Ok(Err(e)) => {
+                                        warn!("DNS upstream send error: {e}");
+                                        None
+                                    }
+                                    Err(_) => {
+                                        warn!(
+                                            "DNS upstream send timed out after {DNS_TIMEOUT_SECS}s"
+                                        );
+                                        None
+                                    }
                                 }
-                                Err(_) => {
-                                    warn!("DNS upstream send timed out after {DNS_TIMEOUT_SECS}s");
+                            };
+
+                            if let Some(data) = response {
+                                let mut cache = cache_clone.write().await;
+                                cache.put(query, data.clone());
+                                if let Err(e) = listener_for_spawn.send_to(&data, src).await {
+                                    trace!("Failed to send DNS response to {}: {e}", src);
                                 }
                             }
                         });

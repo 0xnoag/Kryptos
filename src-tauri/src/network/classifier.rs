@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum TrafficType {
     TcpTor,
@@ -85,8 +84,9 @@ impl TrafficClassifier {
     }
 
     fn is_local_address(&self, addr: &IpAddr) -> bool {
-        self.local_nets.iter().any(|(net, prefix)| {
-            match (addr, net) {
+        self.local_nets
+            .iter()
+            .any(|(net, prefix)| match (addr, net) {
                 (IpAddr::V4(ip), IpAddr::V4(net)) => {
                     let bits = *prefix as u32;
                     if bits == 0 {
@@ -118,10 +118,8 @@ impl TrafficClassifier {
                     }
                 }
                 _ => false,
-            }
-        })
+            })
     }
-
 }
 
 impl Default for TrafficClassifier {

@@ -1,78 +1,86 @@
 import { useDaemon } from "../lib/daemon-context";
-import { Route, Wifi, Shield, GitBranch, Globe } from "lucide-react";
+import { Route } from "lucide-react";
 
 export function Network() {
   const { services, panic } = useDaemon();
 
-  const torRunning = services.find((s) => s.name === "Tor")?.status === "Running";
-  const awgRunning = services.find((s) => s.name === "AmneziaWG")?.status === "Running";
-  const panicLevel = panic?.level ?? "Off";
-  const killSwitchActive = panic?.kill_switch_active ?? false;
+  const tor = services.find((s) => s.name === "Tor");
+  const awg = services.find((s) => s.name === "AmneziaWG");
+  const torOk = tor?.status === "Running";
+  const awgOk = awg?.status === "Running";
+  const ks = panic?.kill_switch_active ?? false;
+  const pl = panic?.level ?? "OFF";
 
   return (
-    <div className="space-y-5 max-w-[1280px]">
+    <div className="space-y-3 max-w-[1280px]">
       <div>
-        <h1 className="text-lg font-semibold text-[#e2e8f0]">Network</h1>
-        <p className="text-caption mt-0.5">
-          Split routing: TCP &rarr; Tor · UDP &rarr; AmneziaWG · DNS &rarr; Local forwarder
-        </p>
+        <div className="page-title">NETWORK</div>
+        <div className="page-subtitle">ROUTING TABLE // TRAFFIC PATH CONFIGURATION</div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {/* TCP path */}
-        <div className={`card ${torRunning ? "border-[#5eead4]/20" : ""}`}>
+        <div className={`card ${torOk ? "border-[#4ade80]/20" : ""}`}>
           <div className="card-header">
-            <div className={`p-1.5 rounded-md ${torRunning ? "bg-[#064e3b]" : "bg-[#232738]"}`}>
-              <Route className={`w-4 h-4 ${torRunning ? "text-[#6ee7b7]" : "text-[#64748b]"}`} />
-            </div>
-            <span className="card-title">TCP path: Tor</span>
-            {torRunning && <span className="status-dot-ok ml-auto" />}
+            <span className="text-[11px] font-mono text-[#4ade80]">TCP</span>
+            <span className="card-title">PATH: TOR</span>
+            {torOk && <span className="indicator-ok ml-auto" />}
           </div>
-          <div className="mt-3 space-y-1.5">
+          <div className="mt-2 data-grid">
             <div className="data-row">
-              <span className="data-row-label">Destination</span>
-              <span className="data-row-value">All TCP (port 6)</span>
+              <span className="data-label">DESTINATION</span>
+              <span className="data-value">ALL TCP</span>
             </div>
             <div className="data-row">
-              <span className="data-row-label">Proxy</span>
-              <span className="data-row-value">SOCKS5 127.0.0.1:9050</span>
+              <span className="data-label">PROXY</span>
+              <span className="data-value">SOCKS5 127.0.0.1:9050</span>
             </div>
             <div className="data-row">
-              <span className="data-row-label">Obfuscation</span>
-              <span className="data-row-value">{torRunning ? "obfs4 active" : "Inactive"}</span>
+              <span className="data-label">OBFUSCATION</span>
+              <span className={`data-value ${torOk ? "value-ok" : "value-dim"}`}>
+                {torOk ? "obfs4 ACTIVE" : "INACTIVE"}
+              </span>
             </div>
             <div className="data-row">
-              <span className="data-row-label">TransPort</span>
-              <span className="data-row-value">fwmark 0x0f0f → table 100</span>
+              <span className="data-label">TRANSPORT</span>
+              <span className="data-value">fwmark 0x0f0f &rarr; table 100</span>
+            </div>
+            <div className="data-row">
+              <span className="data-label">CONTROL</span>
+              <span className="data-value">127.0.0.1:9051</span>
             </div>
           </div>
         </div>
 
         {/* UDP path */}
-        <div className={`card ${awgRunning ? "border-[#5eead4]/20" : ""}`}>
+        <div className={`card ${awgOk ? "border-[#4ade80]/20" : ""}`}>
           <div className="card-header">
-            <div className={`p-1.5 rounded-md ${awgRunning ? "bg-[#064e3b]" : "bg-[#232738]"}`}>
-              <Wifi className={`w-4 h-4 ${awgRunning ? "text-[#6ee7b7]" : "text-[#64748b]"}`} />
-            </div>
-            <span className="card-title">UDP path: AmneziaWG</span>
-            {awgRunning && <span className="status-dot-ok ml-auto" />}
+            <span className="text-[11px] font-mono text-[#22d3ee]">UDP</span>
+            <span className="card-title">PATH: AMNEZIAWG</span>
+            {awgOk && <span className="indicator-ok ml-auto" />}
           </div>
-          <div className="mt-3 space-y-1.5">
+          <div className="mt-2 data-grid">
             <div className="data-row">
-              <span className="data-row-label">Destination</span>
-              <span className="data-row-value">All UDP (port 17)</span>
+              <span className="data-label">DESTINATION</span>
+              <span className="data-value">ALL UDP</span>
             </div>
             <div className="data-row">
-              <span className="data-row-label">Tunnel</span>
-              <span className="data-row-value">awg0</span>
+              <span className="data-label">TUNNEL</span>
+              <span className="data-value">awg0</span>
             </div>
             <div className="data-row">
-              <span className="data-row-label">Listen port</span>
-              <span className="data-row-value">UDP 51820</span>
+              <span className="data-label">LISTEN PORT</span>
+              <span className="data-value">UDP 51820</span>
             </div>
             <div className="data-row">
-              <span className="data-row-label">Status</span>
-              <span className="data-row-value">{awgRunning ? "Tunneled" : "Direct"}</span>
+              <span className="data-label">STATUS</span>
+              <span className={`data-value ${awgOk ? "value-ok" : "value-dim"}`}>
+                {awgOk ? "TUNNELED" : "DIRECT"}
+              </span>
+            </div>
+            <div className="data-row">
+              <span className="data-label">CONFIG</span>
+              <span className="data-value">/etc/amneziawg/awg0.conf</span>
             </div>
           </div>
         </div>
@@ -81,63 +89,58 @@ export function Network() {
       {/* DNS section */}
       <div className="card">
         <div className="card-header">
-          <Globe className="w-4 h-4 text-[#5eead4]" />
-          <span className="card-title">DNS configuration</span>
+          <span className="card-title">DNS CONFIGURATION</span>
         </div>
-        <div className="mt-3 space-y-1.5">
+        <div className="mt-2 data-grid">
           <div className="data-row">
-            <span className="data-row-label">Listener</span>
-            <span className="data-row-value">127.0.0.1:53 (UDP)</span>
+            <span className="data-label">LISTENER</span>
+            <span className="data-value">127.0.0.1:53</span>
           </div>
           <div className="data-row">
-            <span className="data-row-label">Upstream</span>
-            <span className="data-row-value">1.1.1.1:53 (plain UDP)</span>
+            <span className="data-label">UPSTREAM</span>
+            <span className="data-value">1.1.1.1:53</span>
           </div>
           <div className="data-row">
-            <span className="data-row-label">System DNS</span>
-            <span className="data-row-value">resolvectl → lo</span>
+            <span className="data-label">DOH ENDPOINT</span>
+            <span className="data-value">cloudflare-dns.com/dns-query</span>
           </div>
           <div className="data-row">
-            <span className="data-row-label">Encryption</span>
-            <span className="data-row-value text-[#fbbf24]">Plain UDP (DoH planned)</span>
-          </div>
-        </div>
-        {/* DNS leak warning */}
-        <div className="mt-3 p-2 rounded-md bg-[#451a03] border border-[#fbbf24]/20">
-          <span className="text-[11px] text-[#fbbf24]">
-            DNS queries are forwarded over plain UDP and visible to the ISP/network. Hard mode
-            restricts outbound DNS to the configured upstream resolver IP only.
-          </span>
-        </div>
-      </div>
-
-      {/* Kill switch state */}
-      <div className="card">
-        <div className="card-header">
-          <Shield className="w-4 h-4 text-[#5eead4]" />
-          <span className="card-title">Firewall state</span>
-          {killSwitchActive && (
-            <span className="ml-auto text-[11px] text-[#f87171]">Kill switch: {panicLevel}</span>
-          )}
-        </div>
-        <div className="mt-3 space-y-1.5">
-          <div className="data-row">
-            <span className="data-row-label">Kill switch</span>
-            <span className={`data-row-value ${killSwitchActive ? "text-[#f87171]" : ""}`}>
-              {killSwitchActive ? `Active (${panicLevel})` : "Inactive"}
+            <span className="data-label">ENCRYPTION</span>
+            <span className={`data-value ${true ? "value-warn" : "value-ok"}`}>
+              DoH CONFIGURED
             </span>
           </div>
           <div className="data-row">
-            <span className="data-row-label">IPv6</span>
-            <span className="data-row-value text-[#6ee7b7]">Blocked (sysctl)</span>
+            <span className="data-label">SYSTEM DNS</span>
+            <span className="data-value">resolvectl &rarr; lo</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Firewall state */}
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">FIREWALL STATE</span>
+          {ks && <span className="ml-auto text-[9px] font-mono text-[#ef4444]">KS: {pl}</span>}
+        </div>
+        <div className="mt-2 data-grid">
+          <div className="data-row">
+            <span className="data-label">KILL SWITCH</span>
+            <span className={`data-value ${ks ? "value-critical" : "value-dim"}`}>
+              {ks ? `ACTIVE (${pl})` : "INACTIVE"}
+            </span>
           </div>
           <div className="data-row">
-            <span className="data-row-label">Routing</span>
-            <span className="data-row-value">fwmark policy routing</span>
+            <span className="data-label">IPv6</span>
+            <span className="data-value value-ok">BLOCKED</span>
           </div>
           <div className="data-row">
-            <span className="data-row-label">nftables</span>
-            <span className="data-row-value">table inet endpoint_privacy</span>
+            <span className="data-label">ROUTING</span>
+            <span className="data-value">fwmark policy routing</span>
+          </div>
+          <div className="data-row">
+            <span className="data-label">NFTABLES TABLE</span>
+            <span className="data-value">inet endpoint_privacy</span>
           </div>
         </div>
       </div>
@@ -145,37 +148,37 @@ export function Network() {
       {/* Traffic classifier */}
       <div className="card">
         <div className="card-header">
-          <GitBranch className="w-4 h-4 text-[#5eead4]" />
-          <span className="card-title">Traffic classifier rules</span>
+          <Route className="w-3 h-3 text-[#4ade80]" />
+          <span className="card-title">TRAFFIC CLASSIFIER RULES</span>
         </div>
-        <div className="mt-3 space-y-1">
-          <div className="data-row rounded-md bg-[#161922]">
+        <div className="mt-2 space-y-px">
+          <div className="data-row" style={{ background: "#111318" }}>
             <div className="flex items-center gap-2">
-              <span className="status-dot-ok" />
-              <span className="data-row-label">TCP</span>
+              <span className="indicator-ok" />
+              <span className="data-label">TCP</span>
             </div>
-            <span className="data-row-value text-[#6ee7b7]">&rarr; Tor SOCKS5 (127.0.0.1:9050)</span>
+            <span className="text-[10px] font-mono text-[#4ade80]">&rarr; Tor SOCKS5</span>
           </div>
-          <div className="data-row rounded-md bg-[#161922]">
+          <div className="data-row" style={{ background: "#111318" }}>
             <div className="flex items-center gap-2">
-              <span className="status-dot-info" />
-              <span className="data-row-label">UDP</span>
+              <span className="indicator-info" />
+              <span className="data-label">UDP</span>
             </div>
-            <span className="data-row-value text-[#67e8f9]">&rarr; AmneziaWG tunnel (awg0)</span>
+            <span className="text-[10px] font-mono text-[#22d3ee]">&rarr; AmneziaWG (awg0)</span>
           </div>
-          <div className="data-row rounded-md bg-[#161922]">
+          <div className="data-row" style={{ background: "#111318" }}>
             <div className="flex items-center gap-2">
-              <span className="status-dot-warn" />
-              <span className="data-row-label">DNS</span>
+              <span className="indicator-warn" />
+              <span className="data-label">DNS</span>
             </div>
-            <span className="data-row-value text-[#fbbf24]">&rarr; Local forwarder (127.0.0.1:53)</span>
+            <span className="text-[10px] font-mono text-[#f59e0b]">&rarr; Local fwd (127.0.0.1:53)</span>
           </div>
-          <div className="data-row rounded-md bg-[#161922]">
+          <div className="data-row" style={{ background: "#111318" }}>
             <div className="flex items-center gap-2">
-              <span className="status-dot-muted" />
-              <span className="data-row-label">Local net</span>
+              <span className="indicator-off" />
+              <span className="data-label">LOCAL</span>
             </div>
-            <span className="data-row-value text-[#64748b]">&rarr; Direct (bypass, CIDR-restricted)</span>
+            <span className="text-[10px] font-mono text-[#6b7280]">&rarr; Direct (CIDR-restricted)</span>
           </div>
         </div>
       </div>

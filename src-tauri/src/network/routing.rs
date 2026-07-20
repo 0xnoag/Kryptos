@@ -35,44 +35,75 @@ impl RouteManager {
         let table_id: u16 = 100;
 
         run_cmd(
-            Command::new("ip")
-                .args(["rule", "add", &format!("fwmark {mark}"), "table", &table_id.to_string()]),
+            Command::new("ip").args([
+                "rule",
+                "add",
+                &format!("fwmark {mark}"),
+                "table",
+                &table_id.to_string(),
+            ]),
             "ip rule add for Tor fwmark",
-        ).await?;
+        )
+        .await?;
 
         run_cmd(
-            Command::new("ip")
-                .args(["route", "add", "local", "0.0.0.0/0", "dev", "lo", "table", &table_id.to_string()]),
+            Command::new("ip").args([
+                "route",
+                "add",
+                "local",
+                "0.0.0.0/0",
+                "dev",
+                "lo",
+                "table",
+                &table_id.to_string(),
+            ]),
             "ip route add for Tor table",
-        ).await?;
+        )
+        .await?;
 
         run_cmd(
-            Command::new("iptables")
-                .args([
-                    "-t", "mangle",
-                    "-A", "OUTPUT",
-                    "-p", "tcp",
-                    "--syn",
-                    "-m", "owner", "!",
-                    "--uid-owner", "debian-tor",
-                    "-j", "MARK",
-                    "--set-mark", &mark.to_string(),
-                ]),
+            Command::new("iptables").args([
+                "-t",
+                "mangle",
+                "-A",
+                "OUTPUT",
+                "-p",
+                "tcp",
+                "--syn",
+                "-m",
+                "owner",
+                "!",
+                "--uid-owner",
+                "debian-tor",
+                "-j",
+                "MARK",
+                "--set-mark",
+                &mark.to_string(),
+            ]),
             "iptables mark Tor traffic",
-        ).await?;
+        )
+        .await?;
 
         run_cmd(
-            Command::new("iptables")
-                .args([
-                    "-t", "nat",
-                    "-A", "OUTPUT",
-                    "-p", "tcp",
-                    "-m", "mark", "--mark", &mark.to_string(),
-                    "-j", "REDIRECT",
-                    "--to-ports", &tor_trans_port.to_string(),
-                ]),
+            Command::new("iptables").args([
+                "-t",
+                "nat",
+                "-A",
+                "OUTPUT",
+                "-p",
+                "tcp",
+                "-m",
+                "mark",
+                "--mark",
+                &mark.to_string(),
+                "-j",
+                "REDIRECT",
+                "--to-ports",
+                &tor_trans_port.to_string(),
+            ]),
             "iptables redirect Tor marked traffic",
-        ).await?;
+        )
+        .await?;
 
         info!("Tor transparent proxy configured (fwmark {mark}, table {table_id}, port {tor_trans_port})");
         Ok(())
@@ -80,33 +111,46 @@ impl RouteManager {
 
     pub async fn add_route_via_interface(destination: &str, interface: &str) -> Result<()> {
         run_cmd(
-            Command::new("ip")
-                .args(["route", "add", destination, "dev", interface]),
+            Command::new("ip").args(["route", "add", destination, "dev", interface]),
             &format!("ip route add {destination} dev {interface}"),
-        ).await?;
+        )
+        .await?;
 
         info!("Route added: {} via {}", destination, interface);
         Ok(())
     }
 
-    pub async fn add_policy_routing(
-        mark: u32,
-        table_id: u16,
-        table_name: &str,
-    ) -> Result<()> {
+    pub async fn add_policy_routing(mark: u32, table_id: u16, table_name: &str) -> Result<()> {
         run_cmd(
-            Command::new("ip")
-                .args(["rule", "add", &format!("fwmark {mark}"), "table", &table_id.to_string()]),
+            Command::new("ip").args([
+                "rule",
+                "add",
+                &format!("fwmark {mark}"),
+                "table",
+                &table_id.to_string(),
+            ]),
             &format!("ip rule add fwmark {mark} table {table_id}"),
-        ).await?;
+        )
+        .await?;
 
         run_cmd(
-            Command::new("ip")
-                .args(["route", "add", "default", "dev", table_name, "table", &table_id.to_string()]),
+            Command::new("ip").args([
+                "route",
+                "add",
+                "default",
+                "dev",
+                table_name,
+                "table",
+                &table_id.to_string(),
+            ]),
             &format!("ip route add default dev {table_name} table {table_id}"),
-        ).await?;
+        )
+        .await?;
 
-        info!("Policy routing configured for {} (table {})", table_name, table_id);
+        info!(
+            "Policy routing configured for {} (table {})",
+            table_name, table_id
+        );
         Ok(())
     }
 
@@ -114,19 +158,16 @@ impl RouteManager {
         let tables = ["100", "200"];
         for table in &tables {
             let res = run_cmd(
-                Command::new("ip")
-                    .args(["route", "flush", "table", table]),
+                Command::new("ip").args(["route", "flush", "table", table]),
                 &format!("ip route flush table {table}"),
-            ).await;
+            )
+            .await;
             if let Err(e) = res {
                 warn!("Failed to flush table {}: {e}", table);
             }
         }
 
-        let res = run_cmd(
-            Command::new("ip").args(["rule", "flush"]),
-            "ip rule flush",
-        ).await;
+        let res = run_cmd(Command::new("ip").args(["rule", "flush"]), "ip rule flush").await;
         if let Err(e) = &res {
             warn!("Failed to flush routing rules: {e}");
         } else {
@@ -138,10 +179,10 @@ impl RouteManager {
 
     pub async fn sysctl_set(net_key: &str, value: &str) -> Result<()> {
         run_cmd(
-            Command::new("sysctl")
-                .args(["-w", &format!("net.{}={}", net_key, value)]),
+            Command::new("sysctl").args(["-w", &format!("net.{}={}", net_key, value)]),
             &format!("sysctl net.{net_key}={value}"),
-        ).await?;
+        )
+        .await?;
 
         info!("sysctl net.{} = {}", net_key, value);
         Ok(())
@@ -183,7 +224,10 @@ impl RouteManager {
             }
         }
         if !errors.is_empty() {
-            warn!("IPv6 leak blocking partially applied — some sysctls failed: {}", errors.join(", "));
+            warn!(
+                "IPv6 leak blocking partially applied — some sysctls failed: {}",
+                errors.join(", ")
+            );
         } else {
             info!("IPv6 disabled on all interfaces except lo (IPv6 leak prevention)");
         }

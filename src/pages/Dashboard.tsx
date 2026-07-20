@@ -1,5 +1,5 @@
 import { useDaemon } from "../lib/daemon-context";
-import { Activity, Shield, Radio, Route, Globe } from "lucide-react";
+import { Route, Radio } from "lucide-react";
 
 function formatUptime(secs: number): string {
   if (secs < 60) return `${secs}s`;
@@ -12,157 +12,119 @@ function formatUptime(secs: number): string {
 export function Dashboard() {
   const { services, panic } = useDaemon();
 
-  const torSvc = services.find((s) => s.name === "Tor");
-  const awgSvc = services.find((s) => s.name === "AmneziaWG");
-  const syncthingSvc = services.find((s) => s.name === "Syncthing");
-  const torRunning = torSvc?.status === "Running";
-  const awgRunning = awgSvc?.status === "Running";
-  const syncthingRunning = syncthingSvc?.status === "Running";
+  const tor = services.find((s) => s.name === "Tor");
+  const awg = services.find((s) => s.name === "AmneziaWG");
+  const syncthing = services.find((s) => s.name === "Syncthing");
+  const torOk = tor?.status === "Running";
+  const awgOk = awg?.status === "Running";
+  const stOk = syncthing?.status === "Running";
   const runningCount = services.filter((s) => s.status === "Running").length;
   const totalCount = services.length;
-  const panicLevel = panic?.level ?? "Off";
+  const ks = panic?.kill_switch_active ?? false;
+  const pl = panic?.level ?? "OFF";
 
   return (
-    <div className="space-y-5 max-w-[1280px]">
-      {/* Page header */}
+    <div className="space-y-3 max-w-[1280px]">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-[#e2e8f0]">Dashboard</h1>
-          <p className="text-caption mt-0.5">Endpoint Privacy Suite status and traffic flow</p>
+          <div className="page-title">DASHBOARD</div>
+          <div className="page-subtitle">SYSTEM STATUS // {new Date().toLocaleTimeString()}Z</div>
         </div>
-        <div className="flex items-center gap-3">
-          {panic?.kill_switch_active && (
-            <span className="flex items-center gap-1.5 text-[11px] text-[#f87171]">
-              <span className="status-dot-critical" />
-              Kill switch: {panicLevel}
+        <div className="flex items-center gap-2">
+          {ks && (
+            <span className="text-[9px] font-mono text-[#ef4444] tracking-wider uppercase border border-[#ef4444]/30 px-1.5 py-0.5">
+              KILL SWITCH: {pl}
             </span>
           )}
-          <span className="text-[11px] text-[#64748b]">
-            Updated {new Date().toLocaleTimeString()}
-          </span>
         </div>
       </div>
 
-      {/* Top row: quick stats */}
-      <div className="grid grid-cols-4 gap-4">
-        <div className={`card ${panic?.kill_switch_active && panicLevel === "Nuclear" ? "border-[#f87171]/30" : ""}`}>
-          <span className="text-label">Kill switch</span>
-          <div className="flex items-center gap-2 mt-1">
-            <Shield className={`w-4 h-4 ${
-              panic?.kill_switch_active ? "text-[#f87171]" : "text-[#2a2e3d]"
-            }`} />
-            <span className="text-data font-semibold">{panicLevel}</span>
+      {/* Quick status row */}
+      <div className="grid grid-cols-4 gap-3">
+        <div className="card">
+          <div className="card-number">SYS-01</div>
+          <div className="mt-1 flex items-center gap-2">
+            <span className={`indicator ${ks ? "indicator-critical" : "indicator-off"}`} />
+            <span className="text-[11px] font-mono text-[#c8ccd4]">KILL SWITCH</span>
           </div>
+          <div className="text-[15px] font-mono mt-1">{pl}</div>
         </div>
         <div className="card">
-          <span className="text-label">Services</span>
-          <div className="flex items-center gap-2 mt-1">
-            <Radio className="w-4 h-4 text-[#2a2e3d]" />
-            <span className="text-data font-semibold">
-              {runningCount}/{totalCount}
-            </span>
-            <span className="text-caption">running</span>
+          <div className="card-number">SYS-02</div>
+          <div className="mt-1 flex items-center gap-2">
+            <span className={`indicator ${runningCount > 0 ? "indicator-ok" : "indicator-off"}`} />
+            <span className="text-[11px] font-mono text-[#c8ccd4]">SERVICES</span>
           </div>
+          <div className="text-[15px] font-mono mt-1">{runningCount}/{totalCount}</div>
         </div>
         <div className="card">
-          <span className="text-label">TCP path</span>
-          <div className="flex items-center gap-2 mt-1">
-            <span
-              className={torRunning ? "status-dot-ok" : "status-dot-muted"}
-            />
-            <span className="text-data font-semibold">
-              {torRunning ? "Tor" : "Direct"}
-            </span>
+          <div className="card-number">SYS-03</div>
+          <div className="mt-1 flex items-center gap-2">
+            <span className={`indicator ${torOk ? "indicator-ok" : "indicator-off"}`} />
+            <span className="text-[11px] font-mono text-[#c8ccd4]">TCP PATH</span>
           </div>
+          <div className="text-[15px] font-mono mt-1">{torOk ? "TOR" : "DIRECT"}</div>
         </div>
         <div className="card">
-          <span className="text-label">UDP path</span>
-          <div className="flex items-center gap-2 mt-1">
-            <span
-              className={awgRunning ? "status-dot-ok" : "status-dot-muted"}
-            />
-            <span className="text-data font-semibold">
-              {awgRunning ? "AmneziaWG" : "Direct"}
-            </span>
+          <div className="card-number">SYS-04</div>
+          <div className="mt-1 flex items-center gap-2">
+            <span className={`indicator ${awgOk ? "indicator-ok" : "indicator-off"}`} />
+            <span className="text-[11px] font-mono text-[#c8ccd4]">UDP PATH</span>
           </div>
+          <div className="text-[15px] font-mono mt-1">{awgOk ? "AWG" : "DIRECT"}</div>
         </div>
       </div>
 
       {/* Traffic topology */}
       <div className="card">
         <div className="card-header">
-          <Route className="w-4 h-4 text-[#5eead4]" />
-          <span className="card-title">Traffic flow</span>
+          <Route className="w-3 h-3 text-[#4ade80]" />
+          <span className="card-title">TRAFFIC FLOW</span>
         </div>
-        <div className="pt-4 flex items-center justify-center gap-2">
-          {/* Application traffic */}
-          <div className="topology-node">
-            <Activity className="w-5 h-5 text-[#94a3b8]" />
-            <span className="topology-node-label">Applications</span>
-            <span className="topology-node-value">TCP · UDP · DNS</span>
+        <div className="mt-2 flex items-center justify-center gap-1 py-2 text-[10px] font-mono">
+          <div className="border border-[#2a2f3f] px-2 py-1 text-center min-w-[80px]">
+            <div className="text-[#6b7280]">APPS</div>
+            <div className="text-[#c8ccd4]">TCP/UDP</div>
           </div>
-
-          <div className={`topology-arrow ${torRunning || awgRunning ? "topology-arrow-active" : ""}`}>
-            ▶
+          <div className={`${torOk || awgOk ? "text-[#4ade80]" : "text-[#2a2f3f]"}`}>
+            &rarr;
           </div>
-
-          {/* Classifier */}
-          <div className="topology-node">
-            <Route className="w-5 h-5 text-[#94a3b8]" />
-            <span className="topology-node-label">Classifier</span>
-            <span className="topology-node-value">nftables fwmark</span>
+          <div className="border border-[#2a2f3f] px-2 py-1 text-center min-w-[80px]">
+            <div className="text-[#6b7280]">CLASSIFY</div>
+            <div className="text-[#c8ccd4]">nftables</div>
           </div>
-
-          <div className="flex flex-col items-center gap-1">
+          <div className="flex flex-col gap-1">
             <div className="flex items-center gap-1">
-              <span className={`topology-arrow ${torRunning ? "topology-arrow-active" : ""}`}>▶</span>
-              <div className={`topology-node ${torRunning ? "border-[#5eead4]/30" : ""}`}>
-                <span className="topology-node-label">TCP</span>
-                <span className="topology-node-value text-[11px]">Tor · obfs4</span>
-                {torSvc && (
-                  <span className="text-[10px] text-[#64748b]">
-                    {torSvc.status === "Running" ? formatUptime(torSvc.uptime_secs) : torSvc.status}
-                  </span>
-                )}
+              <span className={`${torOk ? "text-[#4ade80]" : "text-[#2a2f3f]"}`}>&rarr;</span>
+              <div className={`border px-2 py-1 text-center min-w-[100px] ${torOk ? "border-[#4ade80]/30" : "border-[#2a2f3f]"}`}>
+                <div className="text-[#6b7280]">TCP</div>
+                <div className="text-[#c8ccd4]">Tor</div>
+                {tor && <div className="text-[#6b7280] text-[9px]">{tor.status === "Running" ? formatUptime(tor.uptime_secs) : tor.status}</div>}
               </div>
             </div>
             <div className="flex items-center gap-1">
-              <span className={`topology-arrow ${awgRunning ? "topology-arrow-active" : ""}`}>▶</span>
-              <div className={`topology-node ${awgRunning ? "border-[#5eead4]/30" : ""}`}>
-                <span className="topology-node-label">UDP</span>
-                <span className="topology-node-value text-[11px]">AmneziaWG</span>
-                {awgSvc && (
-                  <span className="text-[10px] text-[#64748b]">
-                    {awgSvc.status === "Running" ? formatUptime(awgSvc.uptime_secs) : awgSvc.status}
-                  </span>
-                )}
+              <span className={`${awgOk ? "text-[#4ade80]" : "text-[#2a2f3f]"}`}>&rarr;</span>
+              <div className={`border px-2 py-1 text-center min-w-[100px] ${awgOk ? "border-[#4ade80]/30" : "border-[#2a2f3f]"}`}>
+                <div className="text-[#6b7280]">UDP</div>
+                <div className="text-[#c8ccd4]">AWG</div>
+                {awg && <div className="text-[#6b7280] text-[9px]">{awg.status === "Running" ? formatUptime(awg.uptime_secs) : awg.status}</div>}
               </div>
             </div>
           </div>
-
-          <div className={`topology-arrow ${torRunning || awgRunning ? "topology-arrow-active" : ""}`}>
-            ▶
-          </div>
-
-          {/* Internet */}
-          <div className="topology-node border-[#2a2e3d]">
-            <Globe className="w-5 h-5 text-[#64748b]" />
-            <span className="topology-node-label">Internet</span>
-            <span className="text-[10px] text-[#64748b]">
-              {torRunning || awgRunning ? "Tunneled" : "Direct"}
-            </span>
+          <span className={`${torOk || awgOk ? "text-[#4ade80]" : "text-[#2a2f3f]"}`}>
+            &rarr;
+          </span>
+          <div className="border border-[#2a2f3f] px-2 py-1 text-center min-w-[80px]">
+            <div className="text-[#6b7280]">INTERNET</div>
+            <div className="text-[#c8ccd4]">{torOk || awgOk ? "TUNNELED" : "DIRECT"}</div>
           </div>
         </div>
-
-        {/* Kill switch indicator */}
-        {panic?.kill_switch_active && (
-          <div className="mt-4 pt-3 border-divider flex items-center justify-center gap-2">
-            <span className="status-dot-critical" />
-            <span className="text-[11px] text-[#f87171]">
-              Kill switch active at {panicLevel} level
-              {panic.interfaces_down ? " · Interfaces down" : ""}
-              {panic.dns_flushed ? " · DNS flushed" : ""}
-              {panic.kernel_caches_purged ? " · Caches purged" : ""}
+        {ks && (
+          <div className="mt-2 pt-2 border-t border-[#2a2f3f] flex items-center justify-center gap-2">
+            <span className="indicator-critical" />
+            <span className="text-[9px] font-mono text-[#ef4444]">
+              KILL SWITCH: {pl}{panic?.interfaces_down ? " | IF DOWN" : ""}{panic?.dns_flushed ? " | DNS FLUSH" : ""}{panic?.kernel_caches_purged ? " | CACHE PURGE" : ""}
             </span>
           </div>
         )}
@@ -171,46 +133,51 @@ export function Dashboard() {
       {/* Service details */}
       <div className="card">
         <div className="card-header">
-          <Radio className="w-4 h-4 text-[#5eead4]" />
-          <span className="card-title">Services</span>
-          <span className="ml-auto text-caption">
-            {runningCount} of {totalCount} active
-          </span>
+          <Radio className="w-3 h-3 text-[#4ade80]" />
+          <span className="card-title">SERVICES</span>
+          <span className="ml-auto text-[9px] font-mono text-[#6b7280]">{runningCount}/{totalCount} ACTIVE</span>
         </div>
-        <div className="pt-3 space-y-1">
-          {services.map((svc) => {
-            let dotClass = "status-dot-muted";
-            let statusLabel = svc.status;
-            if (svc.status === "Running") {
-              dotClass = "status-dot-ok";
-              statusLabel = `Running · ${formatUptime(svc.uptime_secs)}`;
-            } else if (svc.status === "Failed") {
-              dotClass = "status-dot-critical";
-              statusLabel = "Failed";
-            } else if (svc.status === "Starting" || svc.status === "Restarting") {
-              dotClass = "status-dot-warn";
-            }
-            return (
-              <div key={svc.name} className="data-row">
-                <div className="flex items-center gap-3">
-                  <span className={dotClass} />
-                  <span className="font-medium text-[#e2e8f0]">{svc.name}</span>
-                  <span className="text-caption">{statusLabel}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  {svc.restart_count > 0 && (
-                    <span className="text-caption">Restarts: {svc.restart_count}</span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-          {services.length === 0 && (
-            <div className="py-8 text-center text-caption">
-              No services registered. Ensure daemon is connected.
-            </div>
-          )}
+        <div className="mt-1">
+          <table className="proc-table">
+            <thead>
+              <tr>
+                <th></th>
+                <th>PROCESS</th>
+                <th>STATUS</th>
+                <th>UPTIME</th>
+                <th>RESTARTS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {services.map((svc) => {
+                let indicator = "indicator-off";
+                let statusText = svc.status;
+                if (svc.status === "Running") { indicator = "indicator-ok"; statusText = "RUNNING"; }
+                else if (svc.status === "Failed") { indicator = "indicator-critical"; statusText = "FAILED"; }
+                else if (svc.status === "Starting" || svc.status === "Restarting") { indicator = "indicator-warn"; statusText = svc.status.toUpperCase(); }
+                return (
+                  <tr key={svc.name}>
+                    <td className="w-4"><span className={`indicator ${indicator}`} /></td>
+                    <td>{svc.name}</td>
+                    <td>{statusText}</td>
+                    <td className="text-[#6b7280]">{svc.uptime_secs > 0 ? formatUptime(svc.uptime_secs) : "-"}</td>
+                    <td className="text-[#6b7280]">{svc.restart_count > 0 ? svc.restart_count : "-"}</td>
+                  </tr>
+                );
+              })}
+              {services.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="text-center py-4 text-[#6b7280]">NO SERVICES REGISTERED</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
+      </div>
+
+      {/* Footer */}
+      <div className="text-[8px] font-mono text-[#6b7280] text-center pt-2">
+        KRYPTOS // ENDPOINT PRIVACY SUITE // {new Date().toISOString().split("T")[0]}
       </div>
     </div>
   );
