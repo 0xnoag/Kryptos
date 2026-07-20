@@ -48,10 +48,10 @@ fi
 echo "Opening Kryptos web UI for user: $DESKTOP_USER"
 
 # Run chromium as the desktop user (NOT as root — root breaks GPU/X11)
-sudo -u "$DESKTOP_USER" --set-home chromium \
-    --app="$UI_URL" \
+sudo -u "$DESKTOP_USER" DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" \
+    chromium --app="$UI_URL" \
     --window-size=1200,800 \
     --disable-extensions \
     --disable-plugins \
     --no-first-run \
-    --user-data-dir="$CHROMIUM_PROFILE" 2>/dev/null
+    --user-data-dir="$CHROMIUM_PROFILE" &
