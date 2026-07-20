@@ -1,0 +1,23 @@
+[Unit]
+Description=Kryptos — Endpoint Privacy Suite
+After=network.target network-online.target nftables.service
+Wants=network-online.target
+
+[Service]
+Type=exec
+ExecStart=/usr/local/lib/kryptos/endpoint-privacy-suite
+EnvironmentFile=/etc/endpoint-privacy/env
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=3
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_ADMIN
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_ADMIN
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/etc/endpoint-privacy /run/endpoint-privacy
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

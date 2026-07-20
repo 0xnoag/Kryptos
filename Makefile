@@ -94,7 +94,7 @@ check-hashes:
 		echo "All hashes match."; \
 	fi
 
-# Install system-wide (daemon, frontend, launcher, desktop entry, icon)
+# Install system-wide (daemon, frontend, systemd service, desktop entry, icon)
 install: $(DAEMON_DIR)/target/release/$(DAEMON_BIN)
 	npm run build
 	sudo bash install/install.sh
@@ -102,7 +102,6 @@ install: $(DAEMON_DIR)/target/release/$(DAEMON_BIN)
 # Complete clean slate: remove everything and reinstall
 fresh: uninstall
 	sudo rm -rf dist
-	sudo rm -f /etc/endpoint-privacy/config.enc
 	sudo rm -rf /tmp/kryptos-profile
 	cargo build --release --manifest-path $(DAEMON_DIR)/Cargo.toml
 	npm run build

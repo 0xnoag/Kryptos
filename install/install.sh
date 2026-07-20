@@ -64,14 +64,6 @@ if [ -d "$REPO_DIR/dist" ]; then
     cp -r "$REPO_DIR/dist/"* /opt/kryptos/dist/
 fi
 
-# Install wrapper script
-echo "Installing launcher -> $WRAPPER_DEST"
-install -m 755 "$REPO_DIR/install/kryptos-launch.sh" "$WRAPPER_DEST"
-
-# Install desktop entry (system-wide)
-echo "Installing desktop entry -> $DESKTOP_DEST"
-install -m 644 "$REPO_DIR/install/kryptos.desktop" "$DESKTOP_DEST"
-
 # Wipe old config so daemon creates a fresh one with the new password
 rm -f "$CONFIG_DIR/config.enc"
 
@@ -79,7 +71,7 @@ rm -f "$CONFIG_DIR/config.enc"
 echo
 echo "=== Generating Config Encryption Password ==="
 password=$(python3 -c "import secrets,string; print(''.join(secrets.choice(string.ascii_letters+string.digits) for _ in range(48)))")
-echo "export EPS_PASSWORD=\"$password\"" > "$ENV_DEST"
+echo "EPS_PASSWORD=$password" > "$ENV_DEST"
 chmod 600 "$ENV_DEST"
 echo
 echo "  ┌─────────────────────────────────────────────────────────────┐"
@@ -90,34 +82,37 @@ echo "  │                                                             │"
 echo "  │  Stored in: $ENV_DEST            │"
 echo "  └─────────────────────────────────────────────────────────────┘"
 echo
-echo "This password encrypts your configuration at /etc/endpoint-privacy/"
-echo "The web UI will display it once on first launch."
 
-# Symlink desktop entry for all existing users
-for user_home in /home/*; do
-    user=$(basename "$user_home")
-    user_desktop="$user_home/.local/share/applications"
-    if [ -d "$user_desktop" ]; then
-        ln -sf "$DESKTOP_DEST" "$user_desktop/kryptos.desktop"
-    fi
-done
+# Install systemd service
+echo "Installing systemd service..."
+SYSTEMD_DEST="/etc/systemd/system/kryptos.service"
+install -m 644 "$REPO_DIR/install/kryptos.service" "$SYSTEMD_DEST"
+systemctl daemon-reload
+systemctl enable kryptos.service
+systemctl restart kryptos.service
+echo "  Daemon started via systemd (kryptos.service)"
 
-# Also for root
-if [ -d "/root/.local/share/applications" ]; then
-    ln -sf "$DESKTOP_DEST" "/root/.local/share/applications/kryptos.desktop"
-fi
+# Install desktop entry (system-wide)
+echo "Installing desktop entry -> $DESKTOP_DEST"
+install -m 644 "$REPO_DIR/install/kryptos.desktop" "$DESKTOP_DEST"
 
-# Copy .desktop to each user's Desktop folder
+# Copy .desktop to each user's Desktop folder + app menu
 for user_home in /home/* /root; do
-    if [ -d "$user_home/Desktop" ]; then
-        cp "$REPO_DIR/install/kryptos.desktop" "$user_home/Desktop/kryptos.desktop"
-        chmod +x "$user_home/Desktop/kryptos.desktop"
-        chown "$(basename "$user_home"):$(basename "$user_home")" "$user_home/Desktop/kryptos.desktop" 2>/dev/null || true
+    if [ -d "$user_home" ]; then
+        if [ -d "$user_home/Desktop" ]; then
+            cp "$REPO_DIR/install/kryptos.desktop" "$user_home/Desktop/kryptos.desktop"
+            chmod +x "$user_home/Desktop/kryptos.desktop"
+            chown "$(basename "$user_home"):$(basename "$user_home")" "$user_home/Desktop/kryptos.desktop" 2>/dev/null || true
+        fi
+        # App menu symlink
+        mkdir -p "$user_home/.local/share/applications"
+        ln -sf "$DESKTOP_DEST" "$user_home/.local/share/applications/kryptos.desktop" 2>/dev/null || true
     fi
 done
 
 echo
 echo "=== Installation complete ==="
-echo "Launch Kryptos from your desktop icon, or run: sudo kryptos-launch"
+echo "The daemon is running as a systemd service (kryptos.service)"
+echo "Launch Kryptos from your desktop icon, or run: chromium --app=http://127.0.0.1:8080"
 echo "Password was saved to $ENV_DEST (root-only)"
 echo "Web UI: http://127.0.0.1:8080"
