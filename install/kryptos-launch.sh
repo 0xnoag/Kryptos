@@ -11,6 +11,11 @@ CHROMIUM_PROFILE="/tmp/kryptos-profile"
 
 # Load EPS_PASSWORD from root-only env file
 export EPS_PASSWORD=$(sudo cat "$ENV_FILE" 2>/dev/null | grep '^EPS_PASSWORD=' | cut -d'"' -f2)
+if [ -z "$EPS_PASSWORD" ]; then
+    echo "ERROR: Failed to read EPS_PASSWORD from $ENV_FILE" >&2
+    echo "Run 'sudo make install' to generate a fresh password." >&2
+    exit 1
+fi
 
 # Start daemon if not running
 if ! pgrep -x "$(basename "$DAEMON")" > /dev/null 2>&1; then

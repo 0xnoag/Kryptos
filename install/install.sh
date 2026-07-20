@@ -72,26 +72,23 @@ install -m 755 "$REPO_DIR/install/kryptos-launch.sh" "$WRAPPER_DEST"
 echo "Installing desktop entry -> $DESKTOP_DEST"
 install -m 644 "$REPO_DIR/install/kryptos.desktop" "$DESKTOP_DEST"
 
-# Create env file with auto-generated password (if not exists)
-if [ ! -f "$ENV_DEST" ]; then
-    echo
-    echo "=== Generating Config Encryption Password ==="
-    # Generate a strong random 48-char alphanumeric password
-    password=$(python3 -c "import secrets,string; print(''.join(secrets.choice(string.ascii_letters+string.digits) for _ in range(48)))")
-    echo "export EPS_PASSWORD=\"$password\"" > "$ENV_DEST"
-    chmod 600 "$ENV_DEST"
-    echo
-    echo "  ┌─────────────────────────────────────────────────────────────┐"
-    echo "  │  YOUR KRYPTOS CONFIG PASSWORD (save this securely!)        │"
-    echo "  │                                                             │"
-    printf "  │  %-59s │\n" "$password"
-    echo "  │                                                             │"
-    echo "  │  Stored in: $ENV_DEST            │"
-    echo "  └─────────────────────────────────────────────────────────────┘"
-    echo
-    echo "This password encrypts your configuration at /etc/endpoint-privacy/"
-    echo "The web UI will display it once on first launch."
-fi
+# Generate and save config encryption password (always, overwrites stale file)
+echo
+echo "=== Generating Config Encryption Password ==="
+password=$(python3 -c "import secrets,string; print(''.join(secrets.choice(string.ascii_letters+string.digits) for _ in range(48)))")
+echo "export EPS_PASSWORD=\"$password\"" > "$ENV_DEST"
+chmod 600 "$ENV_DEST"
+echo
+echo "  ┌─────────────────────────────────────────────────────────────┐"
+echo "  │  YOUR KRYPTOS CONFIG PASSWORD (save this securely!)        │"
+echo "  │                                                             │"
+printf "  │  %-59s │\n" "$password"
+echo "  │                                                             │"
+echo "  │  Stored in: $ENV_DEST            │"
+echo "  └─────────────────────────────────────────────────────────────┘"
+echo
+echo "This password encrypts your configuration at /etc/endpoint-privacy/"
+echo "The web UI will display it once on first launch."
 
 # Symlink desktop entry for all existing users
 for user_home in /home/*; do
