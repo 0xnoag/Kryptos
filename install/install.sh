@@ -11,7 +11,7 @@ ICON="$REPO_DIR/assets/icon.svg"
 
 # --- Configuration ---
 DAEMON_DEST="/usr/local/lib/kryptos/endpoint-privacy-suite"
-WRAPPER_DEST="/usr/local/bin/kryptos-launch"
+CLI_DEST="/usr/local/bin/kryptos"
 DESKTOP_DEST="/usr/local/share/applications/kryptos.desktop"
 ICON_DEST="/opt/kryptos/icon.svg"
 ENV_DEST="/etc/endpoint-privacy/env"
@@ -44,7 +44,7 @@ fi
 
 # Create directories
 mkdir -p "$(dirname "$DAEMON_DEST")"
-mkdir -p "$(dirname "$WRAPPER_DEST")"
+mkdir -p "$(dirname "$CLI_DEST")"
 mkdir -p "$(dirname "$DESKTOP_DEST")"
 mkdir -p "$(dirname "$ICON_DEST")"
 mkdir -p "$CONFIG_DIR"
@@ -91,6 +91,10 @@ systemctl daemon-reload
 systemctl enable kryptos.service
 systemctl restart kryptos.service
 echo "  Daemon started via systemd (kryptos.service)"
+
+# Install CLI
+echo "Installing CLI -> $CLI_DEST"
+install -m 755 "$REPO_DIR/install/kryptos" "$CLI_DEST"
 
 # Install desktop entry (system-wide)
 echo "Installing desktop entry -> $DESKTOP_DEST"

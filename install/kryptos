@@ -1,0 +1,196 @@
+#!/bin/bash
+# Kryptos — Endpoint Privacy Suite CLI
+set -euo pipefail
+
+IPC_SOCK="/run/endpoint-privacy/ipc.sock"
+
+# ─── Colors ───
+R="\033[1;31m"; G="\033[1;32m"; Y="\033[1;33m"; B="\033[1;34m"; C="\033[1;36m"; W="\033[0m"
+
+ipc_send() { echo "$1" | sudo nc -U "$IPC_SOCK" 2>/dev/null || echo "ERROR: IPC failed"; }
+
+daemon_status() {
+    if systemctl is-active --quiet kryptos.service 2>/dev/null; then
+        echo -e "${G}●${W} Daemon is ${G}running${W}"
+        return 0
+    else
+        echo -e "${R}●${W} Daemon is ${R}stopped${W}"
+        return 1
+    fi
+}
+
+# ═══════════════════════════════════════════════
+#  COMMANDS
+# ═══════════════════════════════════════════════
+
+case "${1:-help}" in
+
+# ─── status ───
+status|st)
+    daemon_status
+    echo ""
+    echo -e "${B}Services:${W}"
+    echo '{"type":"GetStatus"}' | sudo nc -U "$IPC_SOCK" 2>/dev/null | python3 -c "
+import sys,json
+try:
+    d=json.load(sys.stdin)
+    for s in d.get('services',[]):
+        n=s['name']; st=s['status']; up=s.get('uptime_secs',0)
+        icon='🟢' if st=='Running' else '🟡' if 'Start' in st else '🔴'
+        print(f'  {icon} {n:15s} {st:10s} up:{up}s')
+    p=d.get('panic',{})
+    ks=p.get('kill_switch_active')
+    lvl=p.get('level','OFF')
+    print(f'\n  {"🛡️" if ks else "⬜"} Kill Switch: {lvl}')
+except: print('  (daemon unreachable)')
+"
+    ;;
+
+# ─── start ───
+start)
+    echo -e "Starting Kryptos daemon..."
+    sudo systemctl start kryptos.service
+    for i in $(seq 1 10); do
+        curl -sf http://127.0.0.1:8080 > /dev/null 2>&1 && break
+        sleep 1
+    done
+    echo -e "${G}✓${W} Daemon started — http://127.0.0.1:8080"
+    ;;
+
+# ─── stop ───
+stop)
+    echo -e "Stopping Kryptos daemon..."
+    sudo systemctl stop kryptos.service
+    echo -e "${Y}✓${W} Daemon stopped"
+    ;;
+
+# ─── restart ───
+restart)
+    sudo systemctl restart kryptos.service
+    echo -e "${G}✓${W} Daemon restarted"
+    ;;
+
+# ─── service ───
+service)
+    SUB="${2:-}"; NAME="${3:-}"
+    VALID_SERVICES="Tor AmneziaWG Syncthing Obfs4Proxy"
+    if [ -z "$NAME" ] || ! echo "$VALID_SERVICES" | grep -qw "$NAME"; then
+        echo "Usage: kryptos service <start|stop> <ServiceName>"
+        echo "Services: Tor, AmneziaWG, Syncthing, Obfs4Proxy"
+        exit 1
+    fi
+    case "$SUB" in
+        start) ipc_send "{\"type\":\"StartService\",\"payload\":\"$NAME\"}" ;;
+        stop)  ipc_send "{\"type\":\"StopService\",\"payload\":\"$NAME\"}" ;;
+        *) echo "Usage: kryptos service <start|stop> <ServiceName>"; exit 1 ;;
+    esac
+    echo -e "${G}✓${W} $SUB $NAME"
+    ;;
+
+# ─── panic ───
+panic)
+    LVL="${2:-}"
+    VALID_LEVELS="Off Soft Hard Nuclear"
+    case "$LVL" in
+        off|Off|OFF)       LVL="Off" ;;
+        soft|Soft|SOFT)    LVL="Soft" ;;
+        hard|Hard|HARD)    LVL="Hard" ;;
+        nuclear|Nuclear|NUCLEAR) LVL="Nuclear" ;;
+        *)
+            echo "Usage: kryptos panic <Off|Soft|Hard|Nuclear>"
+            echo ""
+            echo -e "${B}Panic Levels (strongest → weakest):${W}"
+            echo -e "  ${R}Nuclear${W}  — Block ALL traffic. Drop kernel caches, DNS, swap. Maximum isolation."
+            echo -e "  ${R}Hard${W}     — Block ALL traffic via nftables kill switch. Keep system caches."
+            echo -e "  ${Y}Soft${W}     — Block new connections only. Existing flows may linger."
+            echo -e "  ${G}Off${W}      — Disable kill switch. Return to split routing (Tor + AWG)."
+            exit 1
+            ;;
+    esac
+    ipc_send "{\"type\":\"SetPanic\",\"payload\":\"$LVL\"}"
+    echo -e "${G}✓${W} Panic set to $LVL"
+    ;;
+
+# ─── UI (open browser) ───
+ui|web|open)
+    exec chromium --app=http://127.0.0.1:8080 --window-size=1200,800 \
+        --disable-extensions --disable-plugins --no-first-run \
+        --user-data-dir=/tmp/kryptos-profile
+    ;;
+
+# ─── explain ───
+explain|help)
+    echo -e "${C}╔═══════════════════════════════════════════════╗${W}"
+    echo -e "${C}║        Kryptos — Endpoint Privacy Suite      ║${W}"
+    echo -e "${C}╚═══════════════════════════════════════════════╝${W}"
+    echo ""
+    echo -e "${B}Usage:${W} kryptos <command> [options]"
+    echo ""
+    echo -e "${B}Commands:${W}"
+    echo -e "  ${G}status${W}        Show daemon + all services status"
+    echo -e "  ${G}start${W}         Start the daemon (systemd)"
+    echo -e "  ${G}stop${W}          Stop the daemon"
+    echo -e "  ${G}restart${W}       Restart the daemon"
+    echo -e "  ${G}service${W}       Manage individual services (see below)"
+    echo -e "  ${G}panic${W}         Set kill switch level"
+    echo -e "  ${G}ui${W}            Open web UI in browser"
+    echo ""
+    echo -e "${B}Service Management:${W}"
+    echo -e "  kryptos service start <Tor|AmneziaWG|Syncthing|Obfs4Proxy>"
+    echo -e "  kryptos service stop  <Tor|AmneziaWG|Syncthing|Obfs4Proxy>"
+    echo ""
+    echo -e "${B}Panic Levels:${W}"
+    echo -e "  ${R}Nuclear${W}  — Complete isolation."
+    echo -e "     Drops kernel caches, DNS cache, ARP tables, swap memory."
+    echo -e "     Blocks ALL traffic (input/output/forward). Kills all services."
+    echo -e "     Use when you need absolute certainty no data leaks."
+    echo -e ""
+    echo -e "  ${R}Hard${W}     — Full network block via nftables."
+    echo -e "     Blocks all traffic at the kernel firewall level."
+    echo -e "     Keeps services running but nothing reaches the network."
+    echo -e "     System caches are preserved."
+    echo -e ""
+    echo -e "  ${Y}Soft${W}     — Selective block."
+    echo -e "     Drops new connections; existing sessions may continue."
+    echo -e "     Good for graceful shutdown or testing."
+    echo -e ""
+    echo -e "  ${G}Off${W}      — Disarm kill switch."
+    echo -e "     Returns to normal split-routing: TCP → Tor, UDP → AWG."
+    echo -e "     Restores nftables rules to privacy policy."
+    echo -e ""
+    echo -e "${B}Services:${W}"
+    echo -e "  ${C}Tor${W}        — Onion routing for TCP traffic. Hides your IP."
+    echo -e "     Routes browser, chat, and all TCP connections through 3 hops."
+    echo -e "     Uses obfs4proxy for bridge/pluggable transport support."
+    echo -e ""
+    echo -e "  ${C}AmneziaWG${W}  — Amnezia WireGuard for UDP traffic."
+    echo -e "     Encrypted tunnel for DNS, VoIP, streaming, and all UDP."
+    echo -e "     Hardened against deep packet inspection (DPI)."
+    echo -e ""
+    echo -e "  ${C}Syncthing${W}  — Peer-to-peer file sync."
+    echo -e "     Syncs directories across devices without a central server."
+    echo -e "     Encrypted end-to-end. Runs on local network when possible."
+    echo -e ""
+    echo -e "  ${C}Obfs4Proxy${W} — Tor bridge proxy for censorship circumvention."
+    echo -e "     Makes Tor traffic look like random noise to censors."
+    echo -e "     Required in regions with Tor blocking (China, Iran, etc)."
+    echo ""
+    echo -e "${B}Architecture:${W}"
+    echo -e "  Web UI        → http://127.0.0.1:8080 (read-only status)"
+    echo -e "  IPC socket    → /run/endpoint-privacy/ipc.sock (mutations)"
+    echo -e "  Config        → /etc/endpoint-privacy/config.enc (AES-256-GCM)"
+    echo -e "  Logs          → journalctl -u kryptos.service"
+    ;;
+
+# ─── version ───
+version|-v|--version)
+    echo "Kryptos Endpoint Privacy Suite v0.1.0"
+    ;;
+
+# ─── unknown ───
+*)
+    echo "Usage: kryptos <command> [options]"
+    echo "Try:   kryptos explain"
+    exit 1
+    ;;
+esac

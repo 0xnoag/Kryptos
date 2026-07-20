@@ -20,6 +20,7 @@ systemctl daemon-reload
 # Remove files
 echo "Removing files..."
 rm -f /usr/local/lib/kryptos/endpoint-privacy-suite
+rm -f /usr/local/bin/kryptos
 rm -f /usr/local/bin/kryptos-launch
 rm -f /usr/local/share/applications/kryptos.desktop
 rm -f /opt/kryptos/icon.svg

@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=Kryptos
 Comment=Endpoint Privacy Suite — Web UI
-Exec=chromium --app=http://127.0.0.1:8080 --window-size=1200,800 --disable-extensions --disable-plugins --no-first-run
+Exec=kryptos ui
 Icon=/opt/kryptos/icon.svg
 Terminal=false
 Type=Application
