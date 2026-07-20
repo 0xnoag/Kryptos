@@ -85,7 +85,7 @@ async fn main() -> anyhow::Result<()> {
                 Some(v)
             }
             Err(e) => {
-                error!("Failed to load .hashes file for verification: {e}");
+                tracing::error!("Failed to load .hashes file for verification: {e}");
                 if strict {
                     anyhow::bail!("Strict verification requested but .hashes file is invalid");
                 }
