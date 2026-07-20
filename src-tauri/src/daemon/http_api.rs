@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use axum::{
     Router,
@@ -150,6 +151,21 @@ async fn handle_get_panic(
     Json(pe.status().await)
 }
 
+fn dist_dir() -> PathBuf {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            if let Some(grand) = parent.parent() {
+                if let Some(great) = grand.parent() {
+                    if let Some(root) = great.parent() {
+                        return root.join("dist");
+                    }
+                }
+            }
+        }
+    }
+    PathBuf::from("./dist")
+}
+
 async fn handle_index(
     State(state): State<HttpApiState>,
     request: Request,
@@ -157,7 +173,7 @@ async fn handle_index(
     if let Err((code, json)) = check_origin(&request) {
         return Err((code, json.error.clone()));
     }
-    let content = tokio::fs::read_to_string("../dist/index.html")
+    let content = tokio::fs::read_to_string(dist_dir().join("index.html"))
         .await
         .map_err(|_| (StatusCode::NOT_FOUND, "index.html not found".into()))?;
 
@@ -167,7 +183,7 @@ async fn handle_index(
     Ok(resp)
 }
 
-/// SPA fallback: serve static files from ../dist, or fall back to index.html with token injected
+/// SPA fallback: serve static files from dist_dir, or fall back to index.html with token injected
 async fn handle_spa_fallback(
     State(state): State<HttpApiState>,
     request: Request,
@@ -181,7 +197,7 @@ async fn handle_spa_fallback(
         }
     }
 
-    let path = format!("../dist{}", request.uri().path());
+    let path = dist_dir().join(request.uri().path().strip_prefix('/').unwrap_or(""));
 
     if let Ok(content) = tokio::fs::read(&path).await {
         let mime = mime_for_path(&path);
@@ -189,7 +205,7 @@ async fn handle_spa_fallback(
     }
 
     // SPA fallback: serve index.html with token injection
-    match tokio::fs::read_to_string("../dist/index.html").await {
+    match tokio::fs::read_to_string(dist_dir().join("index.html")).await {
         Ok(content) => {
             let injected = inject_token_into_html(&content, &state.ui_token);
             let mut resp = ([(header::CONTENT_TYPE, "text/html")], injected).into_response();
